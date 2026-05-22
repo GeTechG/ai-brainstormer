@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "brainstormer",
+  "description": "Multi-agent AI brainstorm tooling — orchestrate Claude and Codex CLI agents in an adversarial lead + judges review that produces one battle-tested plan.",
+  "owner": {
+    "name": "sergey",
+    "email": "sergey2003.25.9@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "ai-brainstorm",
+      "source": "./plugins/ai-brainstorm",
+      "description": "Orchestrate a cost-efficient AI brainstorm: one lead model answers, one or more judge models adversarially review it round by round until no arguments remain, producing one consolidated plan.",
+      "category": "workflow"
+    }
+  ]
+}

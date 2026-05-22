@@ -1,0 +1,10 @@
+# runtime output — brainstorms are created inside whatever project the skill
+# runs in; they are not part of the plugin distribution
+brainstorms/
+
+# local tooling state
+.serena/
+
+# python
+__pycache__/
+*.pyc
