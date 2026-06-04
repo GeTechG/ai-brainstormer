@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "ai-brainstorm",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Orchestrate a cost-efficient AI brainstorm where one lead model produces an answer and one or more judge models adversarially review it. Every model first investigates the project independently; then judges challenge the lead's answer round by round while it defends or revises, until no arguments remain — producing one consolidated, battle-tested plan.",
   "author": {
     "name": "sergey"

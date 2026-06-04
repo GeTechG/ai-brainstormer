@@ -18,7 +18,8 @@ Why a script and not raw Bash from the orchestrator:
 
 USAGE
   python3 run_round.py --config <round-config.json>   # run a round
-  python3 run_round.py --check                        # preflight CLIs
+  python3 run_round.py --check                        # preflight CLIs (free)
+  python3 run_round.py --check --probe-claude         # + tiny paid claude probe
 
 ROUND CONFIG JSON
 {
@@ -46,7 +47,15 @@ RESULT JSON (printed to stdout)
      "session_id": "<feed this into next round's config>",
      "verdict": "<full text of the agent's answer>",
      "exit_code": 0, "duration_seconds": 123.4, "timed_out": false,
-     "cost_usd": 0.42, "error": null}
+     "cost_usd": 0.42,
+     "tokens": {"input": 12, "output": 800, "cache_read": 40000,
+                "cache_creation": 0, "total": 40812},
+     "error": null}
+
+`cost_usd` is the dollar cost when the CLI reports one (claude), else null
+(codex reports none). `tokens` is a normalized usage summary for both CLIs, so
+cost can be logged symmetrically even when `cost_usd` is null. Either may be
+null if the CLI did not report usage.
   ]
 }
 
@@ -133,7 +142,9 @@ def run_claude(agent, project_dir, prompt_text, timeout):
     The Claude CLI exposes no OS-level read-only sandbox flag, so the agent
     runs in bypassPermissions mode (so a headless run never hangs on a
     permission prompt) with the Write/Edit/NotebookEdit tools denied - it can
-    investigate the project freely but cannot modify its files.
+    investigate the project freely but cannot modify files via its editing
+    tools (`Bash` remains for read-only use; this is not an OS sandbox like
+    codex's).
 
     Plan mode is deliberately NOT used: in headless mode it diverts the agent's
     answer into a separate plan file and returns only a short pointer, which
@@ -143,7 +154,7 @@ def run_claude(agent, project_dir, prompt_text, timeout):
     cmd = [
         "claude", "-p", "--output-format", "json",
         "--permission-mode", "bypassPermissions",
-        "--disallowedTools", "Write,Edit,NotebookEdit",
+        "--disallowedTools", "Write,Edit,MultiEdit,NotebookEdit",
     ]
     if agent.get("session_id"):
         cmd += ["--resume", agent["session_id"]]
@@ -172,7 +183,8 @@ def run_claude(agent, project_dir, prompt_text, timeout):
         error = "claude returned an empty result"
     return _result(agent, code, secs, timed_out, out, err, ok=ok,
                    verdict=verdict, session_id=obj.get("session_id"),
-                   cost_usd=obj.get("total_cost_usd"), error=error)
+                   cost_usd=obj.get("total_cost_usd"),
+                   tokens=_token_summary(obj.get("usage")), error=error)
 
 
 # --------------------------------------------------------------------------
@@ -245,9 +257,11 @@ def run_codex(agent, project_dir, prompt_text, timeout, last_msg_file):
     elif not verdict:
         tail = (err or out)[-600:].strip()
         error = "codex produced no agent message. tail: " + tail
+    # codex reports no dollar cost, so surface its tokens in the symmetric
+    # `tokens` field; keep the raw usage object too for full fidelity.
     res = _result(agent, code, secs, timed_out, out, err, ok=ok,
                   verdict=verdict, session_id=session_id, cost_usd=None,
-                  error=error)
+                  tokens=_token_summary(usage), error=error)
     res["usage"] = usage
     return res
 
@@ -256,8 +270,36 @@ def run_codex(agent, project_dir, prompt_text, timeout, last_msg_file):
 # shared
 # --------------------------------------------------------------------------
 
+def _token_summary(usage):
+    """Normalize a CLI usage object to {input, output, cache_*, total} or None.
+
+    claude and codex report token usage under different key names; collapsing
+    both to one small schema lets the orchestrator log usage symmetrically -
+    codex returns no dollar cost, so its tokens are the only comparable signal.
+    """
+    if not isinstance(usage, dict):
+        return None
+
+    def _g(*keys):
+        for k in keys:
+            v = usage.get(k)
+            if isinstance(v, (int, float)):
+                return int(v)
+        return 0
+
+    inp = _g("input_tokens", "input")
+    out = _g("output_tokens", "output")
+    cache_read = _g("cache_read_input_tokens", "cached_input_tokens")
+    cache_create = _g("cache_creation_input_tokens")
+    total = inp + out + cache_read + cache_create
+    if total == 0:
+        return None
+    return {"input": inp, "output": out, "cache_read": cache_read,
+            "cache_creation": cache_create, "total": total}
+
+
 def _result(agent, code, secs, timed_out, stdout, stderr, *, ok, verdict,
-            session_id, cost_usd, error):
+            session_id, cost_usd, error, tokens=None):
     return {
         "name": agent["name"],
         "cli": agent["cli"],
@@ -268,10 +310,34 @@ def _result(agent, code, secs, timed_out, stdout, stderr, *, ok, verdict,
         "duration_seconds": round(secs, 1),
         "timed_out": timed_out,
         "cost_usd": cost_usd,
+        "tokens": tokens,
         "error": error,
         "_stdout": stdout,
         "_stderr": stderr,
     }
+
+
+def _is_retryable(res):
+    """Decide whether a failed agent run deserves one automatic retry.
+
+    Transient failures (network drop, "socket connection closed", rate limit,
+    5xx, an unparseable JSON blob from a half-sent response) are worth one
+    retry. Timeouts are NOT - the agent already spent its full wall-clock
+    budget, and a second full run would likely overrun again. Auth failures are
+    NOT - they will fail identically until the user logs in, so retrying just
+    burns time and money.
+    """
+    if res["ok"] or res["timed_out"]:
+        return False
+    err = (res.get("error") or "").lower()
+    if not err:
+        return False
+    auth_markers = ("auth", "login", "logged in", "unauthor", "401", "403",
+                    "credential", "api key", "api-key", "forbidden",
+                    "permission denied")
+    if any(m in err for m in auth_markers):
+        return False
+    return True
 
 
 def run_agent(agent, cfg):
@@ -292,16 +358,26 @@ def run_agent(agent, cfg):
     sys.stderr.write("  [%s] starting (%s)...\n" % (agent["name"], cli))
     sys.stderr.flush()
 
-    if cli == "claude":
-        res = run_claude(agent, project_dir, prompt_text, timeout)
-    elif cli == "codex":
-        last_msg = os.path.join(raw_dir, "round-%s-%s.codex-last.txt"
-                                % (rnd, agent["name"]))
-        res = run_codex(agent, project_dir, prompt_text, timeout, last_msg)
-    else:
+    if cli not in ("claude", "codex"):
         return _result(agent, -1, 0.0, False, "", "", ok=False, verdict="",
                        session_id=agent.get("session_id"), cost_usd=None,
                        error="unknown cli: %s (expected claude or codex)" % cli)
+
+    def _invoke():
+        if cli == "claude":
+            return run_claude(agent, project_dir, prompt_text, timeout)
+        last_msg = os.path.join(raw_dir, "round-%s-%s.codex-last.txt"
+                                % (rnd, agent["name"]))
+        return run_codex(agent, project_dir, prompt_text, timeout, last_msg)
+
+    # One automatic retry for transient (non-timeout, non-auth) failures - a
+    # dropped socket or rate-limit should not cost a whole manual rerun.
+    res = _invoke()
+    if _is_retryable(res):
+        sys.stderr.write("  [%s] transient failure (%s) - retrying once...\n"
+                         % (agent["name"], res["error"]))
+        sys.stderr.flush()
+        res = _invoke()
 
     # persist raw output for debugging, then drop it from the returned JSON
     stdout = res.pop("_stdout", "")
@@ -326,7 +402,7 @@ def run_agent(agent, cfg):
 # preflight check
 # --------------------------------------------------------------------------
 
-def do_check():
+def do_check(probe_claude=False):
     report = {"ok": True, "clis": {}}
     for cli in ("claude", "codex"):
         path = shutil.which(cli)
@@ -355,6 +431,28 @@ def do_check():
         except Exception as exc:
             report["clis"]["codex"]["auth"] = "could not check: %s" % exc
 
+    # claude has no headless auth-status command, so its auth is normally
+    # verified implicitly by the first real round (keeping --check free).
+    # --probe-claude opts into an explicit, tiny, *paid* round-trip that
+    # surfaces auth/connectivity problems now instead of mid-brainstorm.
+    if probe_claude and report["clis"]["claude"]["installed"]:
+        try:
+            pr = subprocess.run(
+                ["claude", "-p", "--output-format", "json",
+                 "--permission-mode", "bypassPermissions"],
+                input="reply OK", capture_output=True, text=True, timeout=60)
+            obj = _last_json_object(pr.stdout or "")
+            if obj and obj.get("subtype") == "success" and not obj.get("is_error"):
+                report["clis"]["claude"]["probe"] = "ok"
+            else:
+                tail = (pr.stderr or pr.stdout or "")[-300:].strip()
+                report["clis"]["claude"]["probe"] = (
+                    "FAILED: " + (tail or "no success response"))
+                report["ok"] = False
+        except Exception as exc:
+            report["clis"]["claude"]["probe"] = "could not probe: %s" % exc
+            report["ok"] = False
+
     print(json.dumps(report, indent=2, ensure_ascii=False))
     return 0 if report["ok"] else 1
 
@@ -368,10 +466,13 @@ def main():
     ap.add_argument("--config", help="path to round config JSON")
     ap.add_argument("--check", action="store_true",
                     help="verify the CLIs are installed and authenticated")
+    ap.add_argument("--probe-claude", action="store_true",
+                    help="with --check, also run a tiny (paid) claude round-trip "
+                         "to verify its auth/connectivity now; off by default")
     args = ap.parse_args()
 
     if args.check:
-        return do_check()
+        return do_check(probe_claude=args.probe_claude)
 
     if not args.config:
         ap.error("either --config or --check is required")

@@ -62,15 +62,20 @@ prior reasoning. You inject only what the flow says it should see this turn.
 
 These are what make the brainstorm trustworthy.
 
-1. **Only you write inside `brainstorms/`.** Agents are read-only and never
-   write there. Every curated file is written by you.
+1. **Only you write curated files inside `brainstorms/`.** Agents are instructed
+   not to write there: `codex` is OS-sandboxed read-only, while `claude` relies
+   on disabled editing tools plus prompt instructions (`Bash` stays enabled, so
+   this is not an OS guarantee). Every curated file is written by you.
 2. **Agents must not read `brainstorms/`,** and must stay inside the project
    directory. Each agent's prompt enforces this. It keeps round 1 genuinely
    independent and stops agents from discovering the orchestration machinery.
-3. **Agents cannot modify the project.** `codex` runs in an OS-level read-only
-   sandbox; the `claude` CLI exposes no such flag, so it runs with its
-   file-editing tools (`Write`/`Edit`/`NotebookEdit`) disabled. Verdicts are
-   captured from output — agents never need to write a file.
+3. **Agents must not modify the project.** `codex` runs in an OS-level read-only
+   sandbox — it physically cannot write. The `claude` CLI has no such sandbox: it
+   runs with its file-editing tools (`Write`/`Edit`/`MultiEdit`/`NotebookEdit`)
+   disabled, but `Bash` stays enabled for read-only investigation — so claude's
+   read-only status is enforced **by instruction, not by sandbox**. Run
+   brainstorms on a **clean git working tree** so any stray change is
+   recoverable. Verdicts are captured from output — agents never need to write a file.
 4. **Information flow is one-directional and minimal.** Judges see the lead's
    answer; they never see each other, nor each other's critiques. The lead sees
    the judges' *critiques*; it never sees their independent round-1 answers.
@@ -168,9 +173,9 @@ review". Each judge's answer is its private grounding: a judge that has truly
 thought the problem through gives a far sharper critique than one reacting cold.
 
 1. For each agent, build a round-1 prompt from `references/prompt-templates.md`
-   (read that file now if you have not) — there is a lead variant and a judge
-   variant; they differ only in the role framing. Write each to
-   `.raw/round-1-<agent>.prompt.md`.
+   (read that file now if you have not). Round 1 uses the **same** prompt for
+   every agent — no per-role version; roles take effect only from round 2. Write
+   each to `.raw/round-1-<agent>.prompt.md`.
 2. Write the round config (see "Calling run_round.py") listing **all** agents,
    `session_id: null`. Run it.
 3. For each agent: write the verdict verbatim to `sessions/<agent>/round-1.md`
@@ -198,7 +203,9 @@ Repeat until convergence or the round cap.
 **Judge turn** (rounds 2, 4, 6, …):
 1. For each judge, build a judge-critique prompt: paste the lead's latest
    answer **verbatim**, plus any new user answers. Write to
-   `.raw/round-N-<judge>.prompt.md`.
+   `.raw/round-N-<judge>.prompt.md`. *(Round 2 = first presentation, always full
+   paste. From round 4 you may opt into a verbatim **delta** paste instead — see
+   "delta paste" in `prompt-templates.md` and the experimental gate below.)*
 2. Write the round config listing **the judges only**, each with its
    `session_id` set (resumes the session). Run it.
 3. Persist: write `sessions/<judge>/round-N.md`, update `log.md`, `state.json`.
@@ -210,12 +217,37 @@ Repeat until convergence or the round cap.
    one more judge turn telling it to either justify that its concerns are met
    or state them concretely.
 
+   **Optional fresh-judge control (anti-capitulation).** If a judge flipped
+   `OBJECTIONS REMAIN` → `NO FURTHER OBJECTIONS` *without the lead supplying new
+   evidence that round*, treat the convergence as suspect — argumentative debate
+   makes models capitulate to a confident lead. Before finalizing, you may run a
+   **fresh judge**: a brand-new session (`session_id: null`) that never took part
+   in the debate, given the same round-1 prompt then the lead's final answer as a
+   one-shot judge turn. If it raises a substantive objection, the convergence was
+   fatigue/collapse — reopen the loop. This costs one extra agent run, so use it
+   only when a flip looks unearned, not on every brainstorm.
+
 **Lead turn** (rounds 3, 5, …):
 1. Build a lead-response prompt: paste **all** judges' latest critiques
-   verbatim, labelled by judge, plus any new user answers.
+   verbatim, labelled by judge, plus any new user answers. *(Round 3 = first
+   presentation, always full paste. From round 5 you may opt into a verbatim
+   **delta** paste — see "delta paste" in `prompt-templates.md` and the gate
+   below.)*
 2. Write the round config listing **the lead only**, `session_id` set. Run it.
 3. Persist as above.
 4. Handle Phase 2 questions if any.
+
+**Experimental: delta paste (context optimization, off by default).** On long
+brainstorms the full re-paste of the counterpart's answer/critiques every round
+grows context quadratically. From round 4 (judge) / 5 (lead) you may paste only
+the **verbatim** changed sections plus the full `STATUS` line, relying on the
+agent's resumed session for the unchanged remainder (mechanics in
+`prompt-templates.md`). This is a **correctness-for-cost trade** — if the model
+has dropped an unchanged section from its session memory, a delta leaves a gap.
+Two hard rules: always save the *full* answer/critique to
+`sessions/<agent>/round-N.md`, and gate the rollout behind an **A/B check** — run
+the same topic once full-paste and once delta, and revert to full paste if
+critique sharpness drops or rounds-to-converge rises. Default to full paste.
 
 **Handling deadlock.** If a judge and the lead circle the same point with no
 new arguments, do not let the loop spin. That point is either:
@@ -301,13 +333,16 @@ python3 <skill-dir>/scripts/run_round.py --config /abs/.raw/round-N.config.json
     {"name": "codex", "cli": "codex", "ok": true,
      "session_id": "...", "verdict": "<full answer text>",
      "exit_code": 0, "duration_seconds": 240.3, "timed_out": false,
-     "cost_usd": null, "error": null}
+     "cost_usd": null, "tokens": {"input": 9000, "output": 1200, "total": 10200},
+     "error": null}
   ]
 }
 ```
 Use `verdict` to write the session file; carry `session_id` into the next
-round; record timing/cost in `log.md`. If `ok` is false, read `error` and the
-matching `.raw/round-N-<agent>.*.log` files to diagnose.
+round; record timing/cost in `log.md`. For cost, log `cost_usd` when present
+(claude) and fall back to `tokens.total` when it is null (codex reports no
+dollar cost) — that keeps the log symmetric across agents. If `ok` is false,
+read `error` and the matching `.raw/round-N-<agent>.*.log` files to diagnose.
 
 ## Notes and edge cases
 

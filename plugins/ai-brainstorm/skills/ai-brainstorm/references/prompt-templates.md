@@ -8,20 +8,21 @@ dedicated section instead.
 Write the prompts in the **user's language** so the verdicts come back in that
 language too. Placeholders look like `{LIKE_THIS}`.
 
-The brainstorm has two roles: one **lead** (owns the answer) and one or more
-**judges** (adversarially review it). Round 1 is the same independent study for
-everyone; from round 2 the roles diverge.
+The brainstorm has two orchestration roles: one **lead** (its answer becomes the
+answer under review) and one or more **judges** (adversarially review it). These
+roles take effect only from round 2 — round 1 is one identical independent study
+for everyone, and agents are not told any role.
 
 ---
 
 ## Shared rules block
 
 Prepend this to every prompt, every round. It is what keeps agents independent
-and the project safe. `{AGENT_NAME}` is the agent's name.
+and the project safe.
 
 ```
-You are "{AGENT_NAME}", an AI agent in a structured brainstorm run by an
-orchestrator. Ground rules — they matter:
+You are an AI agent in a structured brainstorm run by an orchestrator. Ground
+rules — they matter:
 
 - You are READ-ONLY. Investigate the project freely (read, search, run
   read-only commands) but do not modify, create, or delete any file. Your
@@ -44,15 +45,20 @@ orchestrator. Ground rules — they matter:
 
 ## Round 1 — independent study
 
-Everyone investigates alone. Use the **lead variant** for the lead and the
-**judge variant** for each judge — they differ only in the role note.
+Every agent gets the **same** prompt — there is no per-role version. Round 1's
+value is a clean, unbiased, independent view; roles begin at round 2.
 
-### Body (shared by both variants)
+### Body
 
 ```
 {SHARED_RULES_BLOCK}
 
-{ROLE_NOTE}
+# This round's goal
+
+Produce the most accurate, best-evidenced independent view you can. Do not
+optimize for any later role or for defending your answer — just get the analysis
+right. Other agents are studying the same topic independently; the orchestrator
+decides afterward how the answers are used.
 
 # Brainstorm topic
 
@@ -88,28 +94,6 @@ High / medium / low, and what would change your mind.
 ## QUESTIONS FOR USER
 Only if something genuinely blocks a good answer. Omit the heading entirely
 if you have none.
-```
-
-### `{ROLE_NOTE}` — lead variant
-
-```
-# Your role: LEAD ANALYST
-
-You own the answer to this brainstorm. Produce the strongest, best-evidenced
-answer you can. From the next round, judge models will adversarially review it
-— they will hunt for errors and weak reasoning, and you will defend or revise.
-Make their job hard: be thorough and concrete now.
-```
-
-### `{ROLE_NOTE}` — judge variant
-
-```
-# Your role: JUDGE
-
-Investigate the topic and form your own complete, independent answer now. From
-the next round you will receive the lead analyst's answer and review it
-critically against your own understanding. A solid independent view now is what
-makes your review sharp later — so do the real work here, do not coast.
 ```
 
 ---
@@ -148,6 +132,11 @@ weak — not to be agreeable. Compare the lead's answer against your own analysi
   needs a fact only the user has, put it under `## QUESTIONS FOR USER`.
 - Acknowledge what the lead got right — a judge that only attacks is as useless
   as one that only nods. Your aim is the best answer, not a body count.
+- Before you drop an objection, **re-derive it against your own round-1
+  analysis**, not against the lead's rhetoric. Concede only when the lead's
+  *evidence* refutes you — confident phrasing, repetition, or appeals to move on
+  are not evidence. An objection abandoned without new evidence is capitulation,
+  not agreement, and it ships a worse answer to the user.
 
 You may investigate the project further to ground an objection.
 
@@ -170,6 +159,25 @@ Exactly one of:
   OBJECTIONS REMAIN — followed by a one-line summary of what is still wrong.
   NO FURTHER OBJECTIONS — followed by one line on why the answer now holds.
 ```
+
+**Experimental — delta paste for `{LEAD_ANSWER}` (rounds ≥ 4, opt-in, A/B-gated).**
+On the lead's *first* appearance to a judge (round 2) always paste the full
+answer above. From round 4 on, the judge already saw the previous lead answer in
+its resumed session, so you may replace `{LEAD_ANSWER}` with the lead's
+`## LEAD STATUS` line **verbatim** plus only the sections that changed since the
+version you last showed *this* judge, **verbatim**, under this marker:
+
+```
+--- BEGIN LEAD ANSWER (DELTA vs round N-2; unchanged sections omitted, they are
+    already in your session history) ---
+```
+
+This is still verbatim — it drops duplicated unchanged text, not fidelity. Always
+send the full `STATUS` line, and always keep the complete answer in
+`sessions/<lead>/round-N.md`. If a judge seems to have lost an unchanged section,
+fall back to full paste. Roll this out only under the A/B gate described in the
+skill; if critique sharpness drops or rounds-to-converge rises, revert to full
+paste.
 
 ---
 
@@ -228,6 +236,21 @@ Exactly one of:
   NOTHING TO CHANGE — followed by one line on why the answer stands as-is.
 ```
 
+**Experimental — delta paste for `{JUDGE_CRITIQUES}` (rounds ≥ 5, opt-in, A/B-gated).**
+On a judge's *first* critique to the lead (round 3) always paste that judge's
+full critique. From round 5 on, you may replace a judge's entry with its
+`## JUDGE STATUS` line **verbatim** plus only the objections that are new or
+changed since the critique you last showed the lead, **verbatim**, under:
+
+```
+--- BEGIN <JUDGE> CRITIQUE (DELTA vs round N-2; unchanged objections omitted,
+    already in your session history) ---
+```
+
+Same rules: verbatim-diff, never paraphrase; always send the full STATUS line;
+keep each full critique in `sessions/<judge>/round-N.md`; fall back to full paste
+on any doubt; gate behind the A/B check in the skill.
+
 ---
 
 ## `{USER_ANSWERS_SECTION}`
@@ -250,8 +273,11 @@ Otherwise leave `{USER_ANSWERS_SECTION}` empty.
 
 - Keep `{TOPIC}` identical for every agent and every round — a moving target
   makes verdicts incomparable.
-- Paste answers and critiques **verbatim**. Do not summarise or soften them;
-  the friction is the point. Always label which judge said what.
+- Paste answers and critiques **verbatim**. "Verbatim" forbids *paraphrasing or
+  softening* — it does **not** forbid a verbatim-*diff*: from later rounds you may
+  paste only the changed sections word-for-word (see the experimental delta-paste
+  notes above), as long as every word you do paste is the agent's own and the
+  friction is preserved. Always label which judge said what.
 - The lead sees judges' **critiques**, never their independent round-1 answers.
   Judges see the lead's **answer**, never each other. Respect this — it is what
   keeps the review independent and the token cost down.
