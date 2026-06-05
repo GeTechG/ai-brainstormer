@@ -47,6 +47,8 @@ RESULT JSON (printed to stdout)
     {"name": "claude", "cli": "claude", "ok": true,
      "session_id": "<feed this into next round's config>",
      "verdict": "<full text of the agent's answer>",
+     "prompt_chars": 12000,
+     "prompt_hash": "sha256:...",
      "exit_code": 0, "duration_seconds": 123.4, "timed_out": false,
      "cost_usd": 0.42,
      "tokens": {"input": 12, "output": 800, "cache_read": 40000,
@@ -66,8 +68,10 @@ Standard library only; no dependencies.
 """
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -131,6 +135,110 @@ def _last_json_object(text):
     for obj in _iter_json_lines(text):
         found = obj
     return found
+
+
+def _fenced_json_objects(text):
+    """Yield parseable JSON objects from fenced ```json blocks."""
+    for match in re.finditer(r"```(?:json)?\s*(.*?)```", text,
+                             re.DOTALL | re.IGNORECASE):
+        raw = match.group(1).strip()
+        if not raw:
+            continue
+        try:
+            yield json.loads(raw)
+        except Exception:
+            continue
+
+
+def _expected_ledger_kind(prompt_text):
+    response_pos = prompt_text.rfind("## Objection ledger response")
+    objection_pos = prompt_text.rfind("## Objection ledger")
+    if response_pos >= 0 or objection_pos >= 0:
+        if response_pos >= objection_pos:
+            return "responses"
+        return "objections"
+    response_pos = prompt_text.rfind('"responses": [')
+    objection_pos = prompt_text.rfind('"objections": [')
+    if response_pos >= 0 or objection_pos >= 0:
+        if response_pos >= objection_pos:
+            return "responses"
+        return "objections"
+    if '"responses": [' in prompt_text:
+        return "responses"
+    if '"objections": [' in prompt_text:
+        return "objections"
+    return None
+
+
+def _validate_ledger_block(verdict, expected):
+    """Return None when the expected fenced JSON ledger block is valid."""
+    if not expected:
+        return None
+    required = ("id", "claim", "required_evidence", "severity", "status")
+    if expected == "responses":
+        required = ("id", "response", "evidence", "answer_change")
+
+    for obj in _fenced_json_objects(verdict):
+        value = obj.get(expected) if isinstance(obj, dict) else None
+        if not isinstance(value, list):
+            continue
+        for idx, item in enumerate(value):
+            if not isinstance(item, dict):
+                return "%s[%d] is not an object" % (expected, idx)
+            missing = [key for key in required if key not in item]
+            if missing:
+                return "%s[%d] missing %s" % (
+                    expected, idx, ", ".join(missing))
+        return None
+    return "missing fenced JSON block with top-level `%s` array" % expected
+
+
+def _ledger_retry_prompt(previous_verdict, validation_error, expected):
+    if expected == "responses":
+        schema = """```json
+{
+  "responses": [
+    {
+      "id": "J1-O1",
+      "response": "conceded|rebutted",
+      "evidence": "Concrete file/line/command/section evidence.",
+      "answer_change": "What changed, or why no change is needed."
+    }
+  ]
+}
+```"""
+    else:
+        schema = """```json
+{
+  "objections": [
+    {
+      "id": "J1-O1",
+      "claim": "Specific lead claim or omission being challenged.",
+      "required_evidence": "What would close this objection.",
+      "severity": "high|medium|low",
+      "status": "open|closed",
+      "closed_by": null,
+      "closure_evidence": null
+    }
+  ]
+}
+```"""
+    return """READ-ONLY: do not modify, create, or delete files. Do not read `brainstorms/`. Stay inside the project.
+
+Your previous answer could not be used by the orchestrator because its machine-readable objection ledger was invalid.
+
+Validation error: %s
+
+Return a corrected answer now. Keep the substantive content, but include exactly one fenced JSON block matching this schema:
+
+%s
+
+Previous answer:
+
+--- BEGIN PREVIOUS ANSWER ---
+%s
+--- END PREVIOUS ANSWER ---
+""" % (validation_error, schema, previous_verdict)
 
 
 # --------------------------------------------------------------------------
@@ -232,6 +340,9 @@ def run_claude(agent, project_dir, prompt_text, timeout):
     """
     cmd = [
         "claude", "-p", "--output-format", "stream-json",
+        # Newer claude CLIs reject `-p --output-format stream-json` without
+        # `--verbose`; it streams the same JSONL events the parser already reads.
+        "--verbose",
         "--include-partial-messages",
         "--permission-mode", "bypassPermissions",
         "--disallowedTools", "Write,Edit,MultiEdit,NotebookEdit",
@@ -264,11 +375,13 @@ def run_claude(agent, project_dir, prompt_text, timeout):
         error = "claude reported error (subtype=%s)" % (obj or {}).get("subtype")
     elif not verdict:
         error = "claude returned an empty result"
-    return _result(agent, code, secs, timed_out, out, err, ok=ok,
-                   verdict=verdict,
-                   session_id=session_id or agent.get("session_id"),
-                   cost_usd=cost_usd,
-                   tokens=_token_summary(usage), error=error)
+    res = _result(agent, code, secs, timed_out, out, err, ok=ok,
+                  verdict=verdict,
+                  session_id=session_id or agent.get("session_id"),
+                  cost_usd=cost_usd,
+                  tokens=_token_summary(usage), error=error)
+    res["usage"] = usage
+    return res
 
 
 # --------------------------------------------------------------------------
@@ -390,6 +503,8 @@ def _result(agent, code, secs, timed_out, stdout, stderr, *, ok, verdict,
         "ok": ok,
         "session_id": session_id,
         "verdict": verdict,
+        "prompt_chars": None,
+        "prompt_hash": None,
         "exit_code": code,
         "duration_seconds": round(secs, 1),
         "timed_out": timed_out,
@@ -447,12 +562,24 @@ def run_agent(agent, cfg):
                        session_id=agent.get("session_id"), cost_usd=None,
                        error="unknown cli: %s (expected claude or codex)" % cli)
 
-    def _invoke():
+    def _stamp_prompt_telemetry(res, active_prompt):
+        res["prompt_chars"] = len(active_prompt)
+        res["prompt_hash"] = "sha256:" + hashlib.sha256(
+            active_prompt.encode("utf-8")).hexdigest()
+        return res
+
+    def _invoke(prompt_override=None, agent_override=None):
+        active_prompt = prompt_text if prompt_override is None else prompt_override
+        active_agent = agent if agent_override is None else agent_override
         if cli == "claude":
-            return run_claude(agent, project_dir, prompt_text, timeout)
+            return _stamp_prompt_telemetry(
+                run_claude(active_agent, project_dir, active_prompt, timeout),
+                active_prompt)
         last_msg = os.path.join(raw_dir, "round-%s-%s.codex-last.txt"
                                 % (rnd, agent["name"]))
-        return run_codex(agent, project_dir, prompt_text, timeout, last_msg)
+        return _stamp_prompt_telemetry(
+            run_codex(active_agent, project_dir, active_prompt, timeout, last_msg),
+            active_prompt)
 
     attempts = []
 
@@ -477,6 +604,32 @@ def run_agent(agent, cfg):
         sys.stderr.flush()
         res = _invoke()
         _record_attempt(res)
+
+    expected_ledger = _expected_ledger_kind(prompt_text)
+    validation_error = None
+    if res.get("ok") and expected_ledger:
+        validation_error = _validate_ledger_block(res.get("verdict") or "",
+                                                  expected_ledger)
+    if validation_error and not res.get("timed_out"):
+        sys.stderr.write("  [%s] invalid ledger (%s) - retrying with schema...\n"
+                         % (agent["name"], validation_error))
+        sys.stderr.flush()
+        retry_agent = dict(agent)
+        retry_agent["session_id"] = res.get("session_id") or agent.get("session_id")
+        retry_prompt = _ledger_retry_prompt(res.get("verdict") or "",
+                                            validation_error, expected_ledger)
+        res = _invoke(prompt_override=retry_prompt, agent_override=retry_agent)
+        res["ledger_retry"] = True
+        res["ledger_validation_error"] = _validate_ledger_block(
+            res.get("verdict") or "", expected_ledger)
+        if res["ledger_validation_error"]:
+            res["ok"] = False
+            res["error"] = "invalid ledger after retry: " + res["ledger_validation_error"]
+        _record_attempt(res)
+    elif validation_error:
+        res["ledger_validation_error"] = validation_error
+        res["ok"] = False
+        res["error"] = "invalid ledger: " + validation_error
 
     # persist raw output for debugging, then drop it from the returned JSON
     for idx, attempt in enumerate(attempts, start=1):

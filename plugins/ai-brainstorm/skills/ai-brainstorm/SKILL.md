@@ -94,7 +94,8 @@ brainstorms/<slug>/
 ├── sessions/
 │   ├── <lead-name>/
 │   │   ├── round-1.md   # round 1 = the lead's independent answer
-│   │   └── round-3.md   # lead turns = revisions answering the judges
+│   │   ├── round-3.md   # lead turns = reconstructed full answer
+│   │   └── round-3.delta.md # optional changed sections emitted by the agent
 │   └── <judge-name>/
 │       ├── round-1.md   # round 1 = the judge's independent study
 │       └── round-2.md   # judge turns = critiques of the lead's answer
@@ -119,8 +120,9 @@ After the independent round 1, judge turns and lead turns alternate:
 | 5     | lead  | lead only   | all judges' round-4 critiques          |
 | 6     | judge | all judges  | the lead's round-5 answer              |
 
-The loop ends early the moment every judge reports no further objections. The
-cap (`max_rounds`, default 6) only bounds a brainstorm that will not converge.
+The loop ends early when the objection ledger has no open or suspect entries.
+The cap (`max_rounds`, default 6) only bounds a brainstorm that will not
+converge.
 
 ## Workflow
 
@@ -174,6 +176,8 @@ Tell the user what is happening between phases — a round takes minutes.
   "round": 1,
   "max_rounds": 6,
   "judging_preset": "cheap",
+  "delta_mode": "section-id",
+  "last_seen_round": {},
   "agents": [
     {"name": "claude", "cli": "claude", "role": "lead",  "model": null, "session_id": null},
     {"name": "codex",  "cli": "codex",  "role": "judge", "model": null, "session_id": null}
@@ -226,10 +230,13 @@ Repeat until convergence or the round cap.
 
 **Judge turn** (rounds 2, 4, 6, …):
 1. For each judge, build a judge-critique prompt: paste the lead's latest
-   answer **verbatim**, plus any new user answers. Write to
-   `.raw/round-N-<judge>.prompt.md`. *(Round 2 = first presentation, always full
-   paste. From round 4 you may opt into a verbatim **delta** paste instead — see
-   "delta paste" in `prompt-templates.md` and the experimental gate below.)*
+   answer sections **verbatim**, plus any new user answers. Round 2 is the
+   first presentation, so paste the full lead answer. From round 4, paste only
+   the changed section-id blocks that the lead emitted, plus the full
+   `## LEAD STATUS`; use `last_seen_round[judge][lead]` to know the base. Write
+   to `.raw/round-N-<judge>.prompt.md`. If the judge looks confused, an id is
+   missing, or the lead delta is thin, set the prompt to full paste and update
+   `last_seen_round` after the run.
 2. Write the round config listing **the judges only**, each with its
    `session_id` set (resumes the session). Run it.
 3. Persist: write `sessions/<judge>/round-N.md`, update `log.md`, `state.json`.
@@ -255,11 +262,12 @@ Repeat until convergence or the round cap.
    judge turn. If it raises a substantive objection, reopen the loop.
 
 **Lead turn** (rounds 3, 5, …):
-1. Build a lead-response prompt: paste **all** judges' latest critiques
+1. Build a lead-response prompt: paste every judge's latest critique sections
    verbatim, labelled by judge, plus the current `objections.json` contents and
-   any new user answers. *(Round 3 = first presentation, always full paste. From
-   round 5 you may opt into a verbatim **delta** paste — see "delta paste" in
-   `prompt-templates.md` and the gate below.)*
+   any new user answers. Round 3 is the first presentation, so paste every
+   critique in full. From round 5, paste only each judge's changed section-id
+   blocks plus the full `## JUDGE STATUS`; use `last_seen_round[lead][judge]`
+   to know the base. Fall back to full paste on any doubt.
 2. Write the round config listing **the lead only**, `session_id` set. Run it.
 3. Persist as above.
 4. Update `objections.json` with the lead's per-id responses. A response to
@@ -267,17 +275,16 @@ Repeat until convergence or the round cap.
    `## New investigation done this round` section.
 5. Handle Phase 2 questions if any.
 
-**Experimental: delta paste (context optimization, off by default).** On long
-brainstorms the full re-paste of the counterpart's answer/critiques every round
-grows context quadratically. From round 4 (judge) / 5 (lead) you may paste only
-the **verbatim** changed sections plus the full `STATUS` line, relying on the
-agent's resumed session for the unchanged remainder (mechanics in
-`prompt-templates.md`). This is a **correctness-for-cost trade** — if the model
-has dropped an unchanged section from its session memory, a delta leaves a gap.
-Two hard rules: always save the *full* answer/critique to
-`sessions/<agent>/round-N.md`, and gate the rollout behind an **A/B check** — run
-the same topic once full-paste and once delta, and revert to full paste if
-critique sharpness drops or rounds-to-converge rises. Default to full paste.
+**Section-id delta mode (default after first presentation).** Full re-paste of
+answers and critiques grows context quadratically. After an agent has seen the
+counterpart's full answer once, send only verbatim changed section-id blocks and
+the full status line. The agent, not the orchestrator, marks which sections
+changed, so fidelity comes from the author of the change instead of a manual
+diff. Hard rules: always save the reconstructed full answer/critique to
+`sessions/<agent>/round-N.md`; save the emitted delta separately when present;
+track `last_seen_round` per agent pair; send full content before finalization
+and to any fresh judge; fall back to full paste when an answer is thin, ids are
+missing, references are incoherent, or the model seems to have lost context.
 
 **Handling deadlock.** If a judge and the lead circle the same point with no
 new arguments, do not let the loop spin. That point is either:
@@ -362,6 +369,7 @@ python3 <skill-dir>/scripts/run_round.py --config /abs/.raw/round-N.config.json
   "results": [
     {"name": "codex", "cli": "codex", "ok": true,
      "session_id": "...", "verdict": "<full answer text>",
+     "prompt_chars": 9000, "prompt_hash": "sha256:...",
      "exit_code": 0, "duration_seconds": 240.3, "timed_out": false,
      "cost_usd": null, "tokens": {"input": 9000, "output": 1200, "total": 10200},
      "attempts": [{"ok": true, "duration_seconds": 240.3, "error": null}],
@@ -371,10 +379,12 @@ python3 <skill-dir>/scripts/run_round.py --config /abs/.raw/round-N.config.json
 }
 ```
 Use `verdict` to write the session file; carry `session_id` into the next
-round; record timing/cost in `log.md`. For cost, log `cost_usd` when present
-(claude) and fall back to `tokens.total` when it is null (codex reports no
-dollar cost) — that keeps the log symmetric across agents. If `ok` is false,
-read `error`, `attempts`, and the matching
+round; record timing/cost plus `prompt_chars`/`prompt_hash` in `log.md`. Use
+the prompt telemetry to verify that section-id delta rounds are actually
+shrinking prompts in A/B comparisons. For cost, log `cost_usd` when present
+(claude) and log token categories separately when it is null (codex reports no
+dollar cost) — do not present `tokens.total` as money. If `ok` is false, read
+`error`, `attempts`, `ledger_validation_error` when present, and the matching
 `.raw/round-N-<agent>.attemptK.*.log` files to diagnose. Always inspect
 `git_guard`: if `mutated_tree` is true, stop the brainstorm and tell the user
 the project tree changed during the round. The guard uses `git status`, so it
@@ -404,3 +414,7 @@ worktree or copy.
 - **Token accounting.** Claude and Codex usage schemas differ. Treat Codex cache
   fields as provisional until measured against a real `turn.completed.usage`
   sample; do not claim exact dollar cost for Codex.
+- **Prompt caching.** Do not claim precise per-block cache attribution. Repeated
+  static prompt text increases observed context and may create cache-write
+  tokens, but treat the effect as a measured hypothesis using `prompt_chars`,
+  `prompt_hash`, and raw usage.

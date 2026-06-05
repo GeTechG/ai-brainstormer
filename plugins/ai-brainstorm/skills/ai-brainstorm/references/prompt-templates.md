@@ -41,6 +41,17 @@ rules — they matter:
 - Use the project's available skills, tools and MCP servers as needed.
 ```
 
+### Compact resumed-round rules block
+
+Use this shorter block from round 2 onward unless you need to re-emphasize a
+rule after a failure.
+
+```
+READ-ONLY: do not modify, create, or delete files. Do not read `brainstorms/`.
+Stay inside the project. Ask only under `## QUESTIONS FOR USER`. Be concrete:
+cite files, lines, commands, and evidence.
+```
+
 ---
 
 ## Round 1 — independent study
@@ -75,20 +86,20 @@ independent answer. Do not hedge — take a clear position and defend it.
 
 Structure your answer like this:
 
-## Position
+## Position {#pos}
 Your recommendation in 2-4 sentences. What should be done?
 
-## Reasoning
+## Reasoning {#reasoning}
 The key arguments, each backed by concrete evidence from the project
 (file paths, code, measurements, command output).
 
-## Risks and tradeoffs
+## Risks and tradeoffs {#risks}
 What could go wrong with your recommendation; what you are trading away.
 
-## Alternatives considered and rejected
+## Alternatives considered and rejected {#alternatives}
 Other options and the specific reason each loses.
 
-## Confidence
+## Confidence {#confidence}
 High / medium / low, and what would change your mind.
 
 ## QUESTIONS FOR USER
@@ -104,11 +115,11 @@ Sent to each judge on its **resumed** session, so it still remembers its own
 round-1 study. Each judge works alone — it never sees other judges.
 
 ```
-{SHARED_RULES_BLOCK}
+{ROUND_RULES_BLOCK}
 
-# Brainstorm topic (reminder)
+# Brainstorm topic
 
-{TOPIC}
+{TOPIC_REMINDER}
 
 # This is judge round {ROUND}
 
@@ -152,14 +163,15 @@ You may investigate the project further to ground an objection.
 
 Structure your answer like this:
 
-## What the lead got right
+## What the lead got right {#got-right}
 Briefly — the parts that hold up.
 
-## Objections
-For each: the lead's claim, why it is wrong or weak, and the evidence.
+## Objections {#objections-summary}
+One concise line per substantive point. The JSON ledger below is the source of
+truth, so do not duplicate long prose here.
 
-## Objection ledger
-Include a fenced JSON block with exactly this shape:
+## Objection ledger {#ledger}
+Include one fenced JSON block:
 
 ```json
 {
@@ -181,7 +193,7 @@ For a closed objection, `closed_by` must name the lead round/section and
 `closure_evidence` must cite the new evidence that resolved it. Do not close an
 objection merely because the lead sounds confident or wants to move on.
 
-## What the lead should investigate further
+## What the lead should investigate further {#investigate}
 Specific, actionable investigation requests.
 
 ## QUESTIONS FOR USER
@@ -193,24 +205,22 @@ Exactly one of:
   NO FURTHER OBJECTIONS — followed by one line on why the answer now holds.
 ```
 
-**Experimental — delta paste for `{LEAD_ANSWER}` (rounds ≥ 4, opt-in, A/B-gated).**
+**Section-id delta input for `{LEAD_ANSWER}` (rounds ≥ 4).**
 On the lead's *first* appearance to a judge (round 2) always paste the full
 answer above. From round 4 on, the judge already saw the previous lead answer in
 its resumed session, so you may replace `{LEAD_ANSWER}` with the lead's
-`## LEAD STATUS` line **verbatim** plus only the sections that changed since the
-version you last showed *this* judge, **verbatim**, under this marker:
+`## LEAD STATUS` line **verbatim** plus only the section-id blocks the lead
+marked changed since the version you last showed *this* judge, **verbatim**,
+under this marker:
 
 ```
---- BEGIN LEAD ANSWER (DELTA vs round N-2; unchanged sections omitted, they are
+--- BEGIN LEAD ANSWER DELTA (base: round N-2; unchanged sections omitted, they are
     already in your session history) ---
 ```
 
-This is still verbatim — it drops duplicated unchanged text, not fidelity. Always
-send the full `STATUS` line, and always keep the complete answer in
-`sessions/<lead>/round-N.md`. If a judge seems to have lost an unchanged section,
-fall back to full paste. Roll this out only under the A/B gate described in the
-skill; if critique sharpness drops or rounds-to-converge rises, revert to full
-paste.
+This is still verbatim — it drops duplicated unchanged text, not fidelity.
+Always send the full `STATUS` line, always keep the reconstructed complete
+answer in `sessions/<lead>/round-N.md`, and fall back to full paste on doubt.
 
 ---
 
@@ -220,11 +230,11 @@ Sent to the lead on its **resumed** session. Paste every judge's latest
 critique, labelled by judge.
 
 ```
-{SHARED_RULES_BLOCK}
+{ROUND_RULES_BLOCK}
 
-# Brainstorm topic (reminder)
+# Brainstorm topic
 
-{TOPIC}
+{TOPIC_REMINDER}
 
 # This is lead round {ROUND}
 
@@ -258,11 +268,11 @@ that investigation before you answer.
 
 Structure your answer like this:
 
-## Responses to objections
-For each objection: restate it, then your response — either "conceded and
-fixed: …" or "rebutted: …" with the evidence.
+## Responses to objections {#responses-summary}
+One concise line per id. The JSON response below is the source of truth, so do
+not duplicate long prose here.
 
-## Objection ledger response
+## Objection ledger response {#ledger-response}
 Include a fenced JSON block with exactly this shape:
 
 ```json
@@ -281,11 +291,29 @@ Include a fenced JSON block with exactly this shape:
 Every open id must appear exactly once. A concession or rebuttal without
 evidence is not valid.
 
-## New investigation done this round
+## New investigation done this round {#investigation}
 What you checked in the project because the judges asked, and what you found.
 
-## Revised answer
-Your full current answer, updated in light of this round.
+## Revised answer sections
+Use stable section ids. In round 3, emit every section below in full. From round
+5 onward, emit only sections whose content changed, plus `## LEAD STATUS` in
+full. The orchestrator reconstructs the full answer from these section-id
+blocks.
+
+### Position {#pos}
+Current recommendation in 2-4 sentences.
+
+### Reasoning {#reasoning}
+Current key arguments backed by evidence.
+
+### Risks and tradeoffs {#risks}
+Current risks and tradeoffs.
+
+### Alternatives considered and rejected {#alternatives}
+Current rejected alternatives and why they lose.
+
+### Confidence {#confidence}
+Current confidence and what would change your mind.
 
 ## QUESTIONS FOR USER
 Only if needed; omit the heading otherwise.
@@ -296,20 +324,20 @@ Exactly one of:
   NOTHING TO CHANGE — followed by one line on why the answer stands as-is.
 ```
 
-**Experimental — delta paste for `{JUDGE_CRITIQUES}` (rounds ≥ 5, opt-in, A/B-gated).**
+**Section-id delta input for `{JUDGE_CRITIQUES}` (rounds ≥ 5).**
 On a judge's *first* critique to the lead (round 3) always paste that judge's
 full critique. From round 5 on, you may replace a judge's entry with its
-`## JUDGE STATUS` line **verbatim** plus only the objections that are new or
-changed since the critique you last showed the lead, **verbatim**, under:
+`## JUDGE STATUS` line **verbatim** plus only the section-id blocks that are new
+or changed since the critique you last showed the lead, **verbatim**, under:
 
 ```
---- BEGIN <JUDGE> CRITIQUE (DELTA vs round N-2; unchanged objections omitted,
+--- BEGIN <JUDGE> CRITIQUE DELTA (base: round N-2; unchanged sections omitted,
     already in your session history) ---
 ```
 
 Same rules: verbatim-diff, never paraphrase; always send the full STATUS line;
 keep each full critique in `sessions/<judge>/round-N.md`; fall back to full paste
-on any doubt; gate behind the A/B check in the skill.
+on any doubt.
 
 ---
 
@@ -331,13 +359,13 @@ Otherwise leave `{USER_ANSWERS_SECTION}` empty.
 
 ## Tips for the orchestrator
 
-- Keep `{TOPIC}` identical for every agent and every round — a moving target
-  makes verdicts incomparable.
+- Keep the topic semantically identical. Round 1 uses full `{TOPIC}`; resumed
+  rounds should use a compact `{TOPIC_REMINDER}` such as "Same topic as round 1;
+  use your session history and the pasted counterpart material."
 - Paste answers and critiques **verbatim**. "Verbatim" forbids *paraphrasing or
-  softening* — it does **not** forbid a verbatim-*diff*: from later rounds you may
-  paste only the changed sections word-for-word (see the experimental delta-paste
-  notes above), as long as every word you do paste is the agent's own and the
-  friction is preserved. Always label which judge said what.
+  softening* — it does **not** forbid a verbatim section-id delta. From later
+  rounds paste only changed sections word-for-word when the receiving agent has
+  already seen the full base. Always label which judge said what.
 - The lead sees judges' **critiques**, never their independent round-1 answers.
   Judges see the lead's **answer**, never each other. Respect this — it is what
   keeps the review independent and the token cost down.
