@@ -8,10 +8,19 @@ dedicated section instead.
 Write the prompts in the **user's language** so the verdicts come back in that
 language too. Placeholders look like `{LIKE_THIS}`.
 
-The brainstorm has two orchestration roles: one **lead** (its answer becomes the
-answer under review) and one or more **judges** (adversarially review it). These
-roles take effect only from round 2 — round 1 is one identical independent study
-for everyone, and agents are not told any role.
+The brainstorm has two **modes** (see `SKILL.md`):
+
+- **`adversarial_review`** (default) — two orchestration roles: one **lead** (its
+  answer becomes the answer under review) and one or more **judges**
+  (adversarially review it). Templates: *Round 1*, *Judge turn*, *Lead turn*.
+- **`symmetric_deliberation`** (opt-in, for open "where to take the project"
+  questions) — every agent is an equal **participant**; positions collide and the
+  conclusion is derived from the clash, never averaged toward agreement.
+  Templates: *Round 1* (shared), *Symmetric deliberation turn*, *Symmetric final
+  stance*.
+
+In both modes, roles take effect only from round 2 — round 1 is one identical
+independent study for everyone, and agents are not told any role.
 
 ---
 
@@ -358,6 +367,224 @@ or changed since the critique you last showed the lead, **verbatim**, under:
 Same rules: verbatim-diff, never paraphrase; always send the full STATUS line;
 keep each full critique in `sessions/<judge>/round-N.md`; fall back to full paste
 on any doubt.
+
+---
+
+## Symmetric deliberation turn — collide positions (mode `symmetric_deliberation`, rounds 2, 3, …)
+
+Sent to **every** participant on its resumed session, each round. There is no
+lead and no judge: each agent argues its own position, attacks the strongest
+*opposing* position on evidence, and may move only when evidence forces it. The
+orchestrator injects the other participants' material (agents still never read
+`brainstorms/`).
+
+The stop criterion is **decoupled from agreement** — the deliberation ends when
+every decision-critical claim is resolved with evidence, not when everyone nods.
+A compromise-in-the-middle reached only to finish is forbidden.
+
+```
+{ROUND_RULES_BLOCK}
+
+# Brainstorm topic
+
+{TOPIC_REMINDER}
+
+# This is symmetric deliberation round {ROUND}
+
+This is a deliberation among equals — there is no lead and no judge. Your goal is
+the most defensible answer to the topic, derived from the collision of opposing
+views, NOT a compromise that averages them. Do not soften your position to reach
+agreement; agreement is not the goal and is not required to finish.
+
+Here are the other participants' current positions, pasted by the orchestrator.
+
+--- BEGIN OTHER PARTICIPANTS' POSITIONS ---
+{OTHER_POSITIONS}
+--- END OTHER PARTICIPANTS' POSITIONS ---
+
+# Current deliberation ledger
+
+The orchestrator maintains this machine-readable ledger across rounds. Reuse
+existing ids; create new ids only for genuinely new options or claims.
+
+```json
+{DELIBERATION_JSON}
+```
+
+{USER_ANSWERS_SECTION}
+
+# Your task for this round
+
+- **State your current position** as one of the `options` (or propose a new
+  option with an id). Take a clear stance; do not hedge.
+- **Articulate the strongest opposing view** — the best version of the position
+  you most disagree with, stated fairly (steelman, not strawman). Then attack it
+  on evidence.
+- **Attack claims, not agents.** Challenge specific claims by id; supply the
+  evidence that would resolve them. Never argue from another agent's tone,
+  confidence, or wish to move on.
+- **Mark `decision_critical` claims** — the ones that, if resolved, actually
+  decide between options. These are what convergence is measured on.
+- **Do NOT propose a compromise-middle option without evidence.** A new
+  synthesis option is allowed ONLY if it cites concrete `accepted` claims from
+  **both** sides; a synthesis with no cross-side claim ids is unearned and will
+  be rejected by the orchestrator (`unearned_synthesis`).
+- **Move only on evidence.** You may change your `current_option`, but every
+  change must carry `change_evidence` (the specific new evidence or resolved
+  claim that moved you). A flip with no evidence is capitulation, not agreement,
+  and will be flagged `suspect_flip`.
+- **Resolving a claim you challenged** requires you to explicitly drop the
+  challenge with `resolution_evidence`. An unaddressed challenge keeps the claim
+  `unresolved`; it does not silently become `accepted`.
+
+You may investigate the project further to ground a claim or your position.
+
+Structure your answer like this:
+
+## Your position {#position}
+Which option you back right now, in 2-4 sentences, and the decisive reason.
+
+## Strongest opposing view {#opposing}
+The best case for the position you most disagree with, stated fairly — then where
+and why the evidence breaks it.
+
+## Claims and challenges {#claims-summary}
+One concise line per substantive claim or challenge you are adding or resolving
+this round. The JSON ledger below is the source of truth; do not duplicate long
+prose here.
+
+## Deliberation ledger {#ledger}
+Include exactly one fenced JSON block with all three arrays:
+
+```json
+{
+  "options": [
+    {"id": "OPT-A", "summary": "One concrete direction the project could take.", "proposed_by": "claude"}
+  ],
+  "claims": [
+    {
+      "id": "C1",
+      "claim": "A decision-relevant assertion.",
+      "supports": "OPT-A",
+      "decision_critical": true,
+      "evidence": "Concrete file/line/command/measurement evidence.",
+      "challenged_by": [],
+      "status": "open|accepted|rejected|unresolved",
+      "resolution_evidence": null
+    }
+  ],
+  "positions": [
+    {
+      "agent": "claude",
+      "current_option": "OPT-A",
+      "changed_from": null,
+      "change_evidence": null,
+      "suspect_flip": false
+    }
+  ]
+}
+```
+
+Rules for the ledger:
+- `challenged_by` lists the agents currently challenging a claim. A challenged
+  claim becomes `accepted` only when **every** challenger drops its challenge
+  with `resolution_evidence`; otherwise it stays `unresolved`.
+- `status: "accepted"` or `"rejected"` for a `decision_critical` claim REQUIRES a
+  non-empty `resolution_evidence`. `open` means still contested; `unresolved`
+  means challenged and not yet settled.
+- A `position` whose `current_option` differs from `changed_from` MUST give
+  `change_evidence`, else set `suspect_flip: true` yourself.
+
+## QUESTIONS FOR USER
+Only if needed; omit the heading otherwise.
+
+## DELIBERATION STATUS
+Exactly one of:
+  OPEN CLAIMS REMAIN — followed by a one-line summary of which decision-critical
+  claims are still open or unresolved.
+  ALL DECISION-CRITICAL CLAIMS RESOLVED — followed by one line naming your
+  recommended option; note this is NOT a claim of consensus, only that the
+  evidence is in.
+```
+
+**Section-id delta input for `{OTHER_POSITIONS}` (rounds ≥ 3).**
+On a counterpart's *first* appearance (round 2) paste each other participant's
+full position. From round 3 on, replace a participant's entry with its
+`## DELIBERATION STATUS` line **verbatim** plus only the section-id blocks it
+marked changed since the version you last showed *this* participant, **verbatim**,
+under:
+
+```
+--- BEGIN <PARTICIPANT> POSITION DELTA (base: round N-1; unchanged sections
+    omitted, already in your session history) ---
+```
+
+At N=2 each participant sees exactly one counterpart; from N≥3 the orchestrator
+pastes each of the other N-1 participants under its own labelled block. Keep the
+reconstructed full position in `sessions/<agent>/round-N.md`; fall back to full
+paste on doubt; always send full content to a fresh auditor.
+
+---
+
+## Symmetric final stance — machine-readable closing position (mode `symmetric_deliberation`)
+
+Sent to **every** participant once the deliberation ledger shows no `open` (and
+no unexplained `suspect_flip`) on decision-critical claims, OR at the round cap.
+Each participant commits a final, machine-readable stance. **Consensus is not
+required** — a participant may end in dissent, and the orchestrator preserves
+that in the final plan rather than erasing it.
+
+```
+{ROUND_RULES_BLOCK}
+
+# Brainstorm topic
+
+{TOPIC_REMINDER}
+
+# Final stance
+
+The deliberation has reached the point where the decision-critical claims are
+resolved with evidence (or the round cap was hit). Commit your final position.
+
+- Do NOT change your stance now to match anyone else. If you still disagree,
+  state your dissent — it will be recorded faithfully, not averaged away.
+- Your recommended option must be justified by the specific `accepted`/`rejected`
+  claims that led you there, by id.
+- If you back a synthesis option, it MUST cite `accepted` claims from more than
+  one original side; a synthesis without cross-side claim ids is unearned.
+
+# Current deliberation ledger
+
+```json
+{DELIBERATION_JSON}
+```
+
+Structure your answer like this:
+
+## Final position {#final-position}
+Your recommended option and the decisive reasoning in 2-4 sentences.
+
+## FINAL STANCE
+Include exactly one fenced JSON block:
+
+```json
+{
+  "agent": "claude",
+  "recommended_option": "OPT-A",
+  "supporting_claims": ["C1", "C3"],
+  "is_synthesis": false,
+  "cross_side_claims": [],
+  "dissents_from": [],
+  "unresolved_at_close": []
+}
+```
+
+- `supporting_claims` — the resolved claim ids that justify your recommendation.
+- `is_synthesis` true requires `cross_side_claims` to list `accepted` claim ids
+  from more than one original side (otherwise the stance is unearned).
+- `dissents_from` — options/agents you still disagree with, if any.
+- `unresolved_at_close` — claim ids you consider still unresolved (empty if none).
+```
 
 ---
 

@@ -150,7 +150,25 @@ def _fenced_json_objects(text):
             continue
 
 
+# Composite ledger used by the symmetric_deliberation mode. Unlike the
+# adversarial-review ledgers (one top-level array), this is three arrays in one
+# fenced JSON block; each maps to its required item keys.
+_DELIBERATION_SCHEMAS = {
+    "options": ("id", "summary", "proposed_by"),
+    "claims": ("id", "claim", "supports", "decision_critical", "evidence",
+               "challenged_by", "status", "resolution_evidence"),
+    "positions": ("agent", "current_option", "changed_from", "change_evidence",
+                  "suspect_flip"),
+}
+
+
 def _expected_ledger_kind(prompt_text):
+    # Symmetric-deliberation mode emits one composite ledger (options/claims/
+    # positions). Detect it first — it is a distinct heading from the
+    # adversarial-review objection/response ledgers.
+    if (prompt_text.rfind("## Deliberation ledger") >= 0
+            or '"claims": [' in prompt_text):
+        return "deliberation"
     response_pos = prompt_text.rfind("## Objection ledger response")
     objection_pos = prompt_text.rfind("## Objection ledger")
     if response_pos >= 0 or objection_pos >= 0:
@@ -170,10 +188,41 @@ def _expected_ledger_kind(prompt_text):
     return None
 
 
+def _validate_deliberation_block(verdict):
+    """Validate the composite symmetric-deliberation ledger.
+
+    Unlike the objection/response ledgers (one top-level array), this ledger
+    carries three arrays — options, claims, positions — in one fenced JSON
+    block. All three must be present and every item must carry its required
+    keys, so the orchestrator's machine convergence check (every
+    decision_critical claim resolved, no suspect_flip) has the fields it needs.
+    """
+    for obj in _fenced_json_objects(verdict):
+        if not isinstance(obj, dict):
+            continue
+        if not all(key in obj for key in _DELIBERATION_SCHEMAS):
+            continue
+        for key, required in _DELIBERATION_SCHEMAS.items():
+            value = obj.get(key)
+            if not isinstance(value, list):
+                return "`%s` is not an array" % key
+            for idx, item in enumerate(value):
+                if not isinstance(item, dict):
+                    return "%s[%d] is not an object" % (key, idx)
+                missing = [k for k in required if k not in item]
+                if missing:
+                    return "%s[%d] missing %s" % (key, idx, ", ".join(missing))
+        return None
+    return ("missing fenced JSON block with top-level `options`, `claims`, and "
+            "`positions` arrays")
+
+
 def _validate_ledger_block(verdict, expected):
     """Return None when the expected fenced JSON ledger block is valid."""
     if not expected:
         return None
+    if expected == "deliberation":
+        return _validate_deliberation_block(verdict)
     required = ("id", "claim", "required_evidence", "severity", "status")
     if expected == "responses":
         required = ("id", "response", "evidence", "answer_change")
@@ -194,7 +243,36 @@ def _validate_ledger_block(verdict, expected):
 
 
 def _ledger_retry_prompt(previous_verdict, validation_error, expected):
-    if expected == "responses":
+    if expected == "deliberation":
+        schema = """```json
+{
+  "options": [
+    {"id": "OPT-A", "summary": "One concrete direction the project could take.", "proposed_by": "claude"}
+  ],
+  "claims": [
+    {
+      "id": "C1",
+      "claim": "A decision-relevant assertion.",
+      "supports": "OPT-A",
+      "decision_critical": true,
+      "evidence": "Concrete file/line/command/measurement evidence.",
+      "challenged_by": [],
+      "status": "open|accepted|rejected|unresolved",
+      "resolution_evidence": null
+    }
+  ],
+  "positions": [
+    {
+      "agent": "claude",
+      "current_option": "OPT-A",
+      "changed_from": null,
+      "change_evidence": null,
+      "suspect_flip": false
+    }
+  ]
+}
+```"""
+    elif expected == "responses":
         schema = """```json
 {
   "responses": [

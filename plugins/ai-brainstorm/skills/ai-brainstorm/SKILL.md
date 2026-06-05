@@ -35,6 +35,36 @@ The brainstorm is asymmetric, which keeps it both rigorous and cheap:
 You run the show and stay neutral: you frame prompts, judge when the argument
 is exhausted, relay questions to the user, and write the final plan.
 
+## Two modes
+
+Pick the mode from the **shape of the question**, not by preference:
+
+- **`adversarial_review`** (default) — use when the task is to **check or harden
+  one concrete answer**: an architecture, a code change, a specific plan. The
+  asymmetric lead/judge flow described in this file is strictly better here —
+  machine-checkable convergence via `objections.json`, anti-capitulation controls
+  (`suspect_closure`, fresh-judge), and a cheap one-directional information flow.
+- **`symmetric_deliberation`** (opt-in) — use when the task is an **open "where
+  should we take the project" question**: equal positions, opposing views meant
+  to collide, a conclusion *derived from the clash* rather than averaged. There
+  is no lead and no judge — every agent is an equal **participant**.
+
+The mode lives in `state.json` (`"mode"`). When unsure which fits, ask the user:
+"harden one specific answer" → `adversarial_review`; "explore a direction from
+clashing views" → `symmetric_deliberation`.
+
+**Why symmetry needs special design (and is not the default).** Naive symmetry
+degrades into "average toward agreement", which produces a blander answer, not a
+truer one. `symmetric_deliberation` avoids this by **decoupling the stop
+criterion from agreement**: the deliberation ends when every decision-critical
+claim is *resolved with evidence*, not when participants agree. The conclusion
+may be `consensus`, `synthesis`, or recorded `dissent` — disagreement is
+preserved, never erased. Three machine-enforced controls encode the no-averaging
+rule (see "Symmetric deliberation" below).
+
+Everything that follows describes `adversarial_review` unless a section is marked
+for `symmetric_deliberation`.
+
 ## How it works
 
 ```
@@ -94,8 +124,9 @@ These are what make the brainstorm trustworthy.
 ```
 brainstorms/<slug>/
 ├── brainstorm.md     # human-readable overview: topic, roles, status, summary
-├── state.json        # machine state: round, agents + roles + session ids
-├── objections.json   # machine-readable judge objections and closure evidence
+├── state.json        # machine state: mode, round, agents + roles + session ids
+├── objections.json   # adversarial_review: judge objections and closure evidence
+├── deliberation.json # symmetric_deliberation: options + claims + positions ledger
 ├── topic.md          # the framed problem given to agents in round 1
 ├── sessions/
 │   ├── <lead-name>/
@@ -141,9 +172,15 @@ Tell the user what is happening between phases — a round takes minutes.
    understanding in one sentence; otherwise ask. A sharp topic is the single
    biggest lever on quality.
 
-2. **Assign roles.** Default: two agents — `claude` as the **lead**, `codex` as
-   a **judge**. The user may swap them, or add more judges. There is exactly
-   one lead and one or more judges.
+2. **Pick the mode** (see "Two modes"). Default `adversarial_review` for hardening
+   one concrete answer; `symmetric_deliberation` for an open "where to take the
+   project" question. If `symmetric_deliberation`, the rest of Phase 0 still
+   applies but every agent gets `role: "participant"` (no lead/judge), and you
+   follow the "Symmetric deliberation" section for the loop and finalize.
+
+3. **Assign roles** (`adversarial_review`). Default: two agents — `claude` as the
+   **lead**, `codex` as a **judge**. The user may swap them, or add more judges.
+   There is exactly one lead and one or more judges.
 
    Judging presets:
    - `cheap` (default): one judge. Lowest cost; lower confidence when a strong
@@ -156,7 +193,7 @@ Tell the user what is happening between phases — a round takes minutes.
    Cost tip to offer if the user is cost-sensitive: judges can be set to a
    cheaper/faster model.
 
-3. **Preflight the CLIs:**
+4. **Preflight the CLIs:**
    ```bash
    python3 <skill-dir>/scripts/run_round.py --check
    ```
@@ -167,17 +204,19 @@ Tell the user what is happening between phases — a round takes minutes.
    explicitly wants a free install/version check. Suggest they run the fix as
    `! <command>` in the prompt.
 
-4. **Create the brainstorm.** Invent a short kebab-case `slug`. Create
+5. **Create the brainstorm.** Invent a short kebab-case `slug`. Create
    `brainstorms/<slug>/` with a `sessions/<agent>/` subdir per agent and a
    `.raw/` subdir. Write `topic.md` (the framed problem — thorough; this is the
-   agents' brief), `state.json`, `objections.json`, and seed `brainstorm.md` and
-   `log.md`.
+   agents' brief), `state.json`, the mode's ledger file (`objections.json` for
+   `adversarial_review`, `deliberation.json` for `symmetric_deliberation`), and
+   seed `brainstorm.md` and `log.md`.
 
-`state.json` shape:
+`state.json` shape (`adversarial_review`):
 ```json
 {
   "slug": "cache-redis-vs-lru",
   "topic_summary": "one-line summary",
+  "mode": "adversarial_review",
   "status": "round-1",
   "round": 1,
   "max_rounds": 6,
@@ -191,11 +230,27 @@ Tell the user what is happening between phases — a round takes minutes.
 }
 ```
 
-`objections.json` starts as:
+For `symmetric_deliberation`, set `"mode": "symmetric_deliberation"`, give every
+agent `"role": "participant"`, and keep `last_seen_round` as an agent↔agent
+matrix (each participant sees each other). Default to **two** participants (two
+opposing models); 3+ is a deliberate, more expensive choice (payload grows
+≈O(N²)).
+
+`objections.json` (`adversarial_review`) starts as:
 ```json
 {
   "version": 1,
   "objections": []
+}
+```
+
+`deliberation.json` (`symmetric_deliberation`) starts as:
+```json
+{
+  "version": 1,
+  "options": [],
+  "claims": [],
+  "positions": []
 }
 ```
 
@@ -332,6 +387,70 @@ final plan must fairly document any objection left standing.
    `state.json` (`status: "finalized"`).
 
 3. Present the plan to the user in chat and point to `final-plan.md`.
+
+## Symmetric deliberation (mode `symmetric_deliberation`)
+
+This mode reuses Phase 0 (setup), Phase 1 (round 1), and Phase 2 (questions)
+unchanged — **round 1 is identical**: the same independent-study prompt for
+everyone, no roles. Only the review loop and finalize differ. Use the *Symmetric
+deliberation turn* and *Symmetric final stance* templates.
+
+**What changes vs the default flow:**
+
+- **No lead/judge.** Every agent is a `participant`. Each round, run **all**
+  participants in parallel (resumed sessions) — there is no cheap one-model lead
+  turn. At N=2 this is ~1.7× the calls of asymmetric review; expected.
+- **The orchestrator injects counterparts' positions.** Agents still never read
+  `brainstorms/`. Round 2 pastes each participant's full round-1 position to the
+  others; from round 3 use section-id deltas (same delta discipline as default,
+  tracked in the `last_seen_round` matrix). At N=2 each sees exactly one
+  counterpart; at N≥3 paste each of the other N-1 under its own labelled block.
+- **`deliberation.json` replaces `objections.json`.** After each round, merge the
+  participants' emitted ledger blocks into `deliberation.json` by id, preserving
+  history across `options`, `claims`, and `positions`.
+
+**Convergence — decoupled from agreement (this is the anti-averaging core).**
+Stop the loop when **all three** hold; agreement is NOT one of them:
+
+1. Every `decision_critical` claim is `accepted` or `rejected` **with**
+   `resolution_evidence`; none left `open`.
+2. Every position change carries `change_evidence`; otherwise the entry is
+   `suspect_flip: true` and the loop is not converged.
+3. (At finalize) every participant emitted a `FINAL STANCE` with a
+   `recommended_option` and the claim ids that led there.
+
+Three machine-checkable controls, all derivable from ledger fields, encode the
+user's no-averaging requirement:
+
+- **Stop by claim-resolution, not by agreement** (criterion 1) — removes the
+  pressure to capitulate just to finish.
+- **Resolution authority on a claim:** a claim with `challenged_by: [X]` may move
+  to `accepted` only when **X explicitly drops** its challenge with
+  `resolution_evidence`; otherwise it stays `unresolved`. Without this, "accepted"
+  degrades back into prose-agreement.
+- **`unearned_synthesis` flag:** a new synthesis option is admissible only if it
+  cites concrete `accepted` claims from **both** sides (`cross_side_claims`). A
+  synthesis with no cross-side claim ids is flagged and cannot become the final
+  recommendation. This is "merging ideas is fine; collapsing to the middle for
+  agreement is not", encoded.
+
+**Anti-capitulation.** `suspect_flip` is the direct analogue of `suspect_closure`:
+a position change with no new evidence (or no dropped challenge) → flag → run one
+more symmetric turn, or a fresh audit.
+
+**Finalize (Phase 4 variant).**
+1. **Fresh audit over the artifact, not `brainstorms/`.** Run a fresh agent
+   (`session_id: null`, never in the debate) given the round-1 prompt, then the
+   consolidated stance artifact + `deliberation.json`, asked to audit the
+   `decision_critical` claims as an outside auditor (mechanics identical to the
+   fresh-judge control). This is asymmetry of the *final check* only, not of
+   answer-ownership during the debate; the "never read `brainstorms/`" invariant
+   holds because the orchestrator pastes the artifact in.
+2. Write `final-plan.md`. The result may be `consensus`, `synthesis`, or
+   `dissent` (majority/minority + unresolved claims). **Preserve disagreement** —
+   an `## Open points` section must state any standing dissent and unresolved
+   claims fairly, never average them away.
+3. Update `brainstorm.md` and `state.json` (`status: "finalized"`).
 
 ## Calling run_round.py
 
