@@ -28,7 +28,9 @@ The brainstorm is asymmetric, which keeps it both rigorous and cheap:
 - **One lead.** It owns the answer. It investigates, proposes, then defends or
   revises under challenge.
 - **One or more judges.** Each adversarially reviews the lead's answer — finds
-  errors, demands deeper investigation, refuses to wave through weak reasoning.
+  errors, demands deeper investigation, refuses to wave through weak reasoning —
+  **and proposes its own solution** so the lead sees a real alternative, not just
+  a list of complaints.
 
 You run the show and stay neutral: you frame prompts, judge when the argument
 is exhausted, relay questions to the user, and write the final plan.
@@ -42,9 +44,9 @@ is exhausted, relay questions to the user, and write the final plan.
         │
    ┌────┴─────────────────┐
    │ LEAD                  │            JUDGE(S)
-   │ owns the answer       │  ◄──────   "here is where you are wrong,
-   │ defends / revises  ───┼────────►    and here is what you must investigate"
-   └───────────────────────┘
+   │ owns the answer       │  ◄──────   "here is where you are wrong, here is
+   │ defends / revises  ───┼────────►    what to investigate, and here is what
+   └───────────────────────┘            I would do instead"
 ```
 
 Why this is cheaper than an all-versus-all debate:
@@ -78,8 +80,12 @@ These are what make the brainstorm trustworthy.
    recoverable. Verdicts are captured from output — agents never need to write a file.
 4. **Information flow is one-directional and minimal.** Judges see the lead's
    answer; they never see each other, nor each other's critiques. The lead sees
-   the judges' *critiques*; it never sees their independent round-1 answers.
-   This preserves independence and keeps token cost down.
+   the judges' *critiques, including the constructive `## Your proposed solution`
+   each judge writes in its critique turn*; it never sees their verbatim
+   independent round-1 answers. The proposal is re-articulated by the judge in
+   the critique turn — so the lead gets the judge's own view of the problem
+   without the round-1 file leaking. This preserves independence (the lead must
+   still reason, not copy) and keeps token cost down.
 5. **You stay neutral.** You decide when arguments are exhausted and you write
    the final synthesis; you do not take a side in the argument itself.
 
@@ -115,9 +121,9 @@ After the independent round 1, judge turns and lead turns alternate:
 |-------|-------|-------------|-----------------------------------------|
 | 1     | study | all agents  | the project only                       |
 | 2     | judge | all judges  | the lead's round-1 answer              |
-| 3     | lead  | lead only   | all judges' round-2 critiques          |
+| 3     | lead  | lead only   | all judges' round-2 critiques + proposals |
 | 4     | judge | all judges  | the lead's round-3 answer              |
-| 5     | lead  | lead only   | all judges' round-4 critiques          |
+| 5     | lead  | lead only   | all judges' round-4 critiques + proposals |
 | 6     | judge | all judges  | the lead's round-5 answer              |
 
 The loop ends early when the objection ledger has no open or suspect entries.

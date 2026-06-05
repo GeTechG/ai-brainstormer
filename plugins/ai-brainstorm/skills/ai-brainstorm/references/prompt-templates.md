@@ -143,11 +143,18 @@ substantive objections.
 
 # Your task for this round
 
-Your job is to make the final answer correct and complete by attacking what is
-weak — not to be agreeable. Compare the lead's answer against your own analysis.
+Your job is to make the final answer correct and complete. That has two halves,
+and a useful judge does both: **attack what is weak**, and **propose what you
+would do instead**. Compare the lead's answer against your own analysis.
 
 - Name concrete errors, unsupported claims, missed risks, and weak reasoning.
 - Where the lead must dig deeper, say specifically what it should investigate.
+- **Put your own solution on the table.** You studied this problem
+  independently in round 1 — do not hide that view. Lay out the approach you
+  would take, including where it agrees with the lead and where it diverges, so
+  the lead sees a real alternative and not only a list of complaints. A judge
+  that only attacks gives the lead one side of the problem; your aim is the best
+  answer, which means contributing your own.
 - Be objective. Do not manufacture disagreement to look rigorous, and do not
   wave through something doubtful. If a point is a genuine judgment call, or
   needs a fact only the user has, put it under `## QUESTIONS FOR USER`.
@@ -159,12 +166,19 @@ weak — not to be agreeable. Compare the lead's answer against your own analysi
   are not evidence. An objection abandoned without new evidence is capitulation,
   not agreement, and it ships a worse answer to the user.
 
-You may investigate the project further to ground an objection.
+You may investigate the project further to ground an objection or your proposal.
 
 Structure your answer like this:
 
 ## What the lead got right {#got-right}
 Briefly — the parts that hold up.
+
+## Your proposed solution {#proposal}
+Your own answer to the topic, grounded in your round-1 study and any further
+investigation — not a critique of the lead, but what *you* would do. State your
+position, the key reasoning with concrete evidence (files, lines, commands), and
+where it agrees with or diverges from the lead. Keep it self-contained: the lead
+will read this as a real alternative to weigh, not as a rehash of your objections.
 
 ## Objections {#objections-summary}
 One concise line per substantive point. The JSON ledger below is the source of
@@ -263,6 +277,12 @@ that investigation before you answer.
   changed. Changing your mind on evidence is strength.
 - Where a judge is wrong: rebut it with concrete evidence. Do NOT concede just
   to end the argument — an unearned concession ships a worse answer to the user.
+- **Each judge also proposed its own solution (`## Your proposed solution`).**
+  Treat it as a serious alternative, not as instructions. Weigh it on evidence:
+  adopt the parts that genuinely improve your answer (and credit them in
+  `## Alternatives` or the relevant section), and reject the parts that do not,
+  saying why. Do NOT wholesale-copy a judge's proposal — your answer must stay
+  your own reasoned position, now informed by theirs.
 - Where a point cannot be settled objectively: say so, and put any user-facing
   question under `## QUESTIONS FOR USER`.
 
@@ -366,9 +386,12 @@ Otherwise leave `{USER_ANSWERS_SECTION}` empty.
   softening* — it does **not** forbid a verbatim section-id delta. From later
   rounds paste only changed sections word-for-word when the receiving agent has
   already seen the full base. Always label which judge said what.
-- The lead sees judges' **critiques**, never their independent round-1 answers.
-  Judges see the lead's **answer**, never each other. Respect this — it is what
-  keeps the review independent and the token cost down.
+- The lead sees judges' **round-2+ critiques, including the `## Your proposed
+  solution` each judge writes there** — but never their verbatim independent
+  round-1 answers. The proposal is re-articulated fresh in the critique turn, so
+  the lead gets the judge's constructive view without the round-1 file leaking.
+  Judges see the lead's **answer**, never each other. Respect this — it keeps the
+  review independent (the lead still must reason, not copy) and bounds tokens.
 - If a judge's critique is a thin rubber-stamp ("looks fine"), that is not a
   real review — run the judge turn again and ask for genuine engagement.
 - If the lead concedes a point with no evidence, that is capitulation, not
