@@ -118,6 +118,16 @@ Here is the lead analyst's current answer. Review it critically.
 {LEAD_ANSWER}
 --- END LEAD ANALYST'S ANSWER ---
 
+# Current objection ledger
+
+The orchestrator maintains this machine-readable ledger across rounds. Reuse
+existing ids when an objection is the same issue; create new ids only for new
+substantive objections.
+
+```json
+{OBJECTIONS_JSON}
+```
+
 {USER_ANSWERS_SECTION}
 
 # Your task for this round
@@ -147,6 +157,29 @@ Briefly — the parts that hold up.
 
 ## Objections
 For each: the lead's claim, why it is wrong or weak, and the evidence.
+
+## Objection ledger
+Include a fenced JSON block with exactly this shape:
+
+```json
+{
+  "objections": [
+    {
+      "id": "J1-O1",
+      "claim": "The specific lead claim or omission being challenged.",
+      "required_evidence": "What would close this objection.",
+      "severity": "high|medium|low",
+      "status": "open|closed",
+      "closed_by": null,
+      "closure_evidence": null
+    }
+  ]
+}
+```
+
+For a closed objection, `closed_by` must name the lead round/section and
+`closure_evidence` must cite the new evidence that resolved it. Do not close an
+objection merely because the lead sounds confident or wants to move on.
 
 ## What the lead should investigate further
 Specific, actionable investigation requests.
@@ -201,6 +234,14 @@ The judge(s) reviewed your answer. Here are all of their critiques.
 {JUDGE_CRITIQUES}
 --- END JUDGE CRITIQUES ---
 
+# Current objection ledger
+
+Respond by id to every open objection in this ledger.
+
+```json
+{OBJECTIONS_JSON}
+```
+
 {USER_ANSWERS_SECTION}
 
 # Your task for this round
@@ -220,6 +261,25 @@ Structure your answer like this:
 ## Responses to objections
 For each objection: restate it, then your response — either "conceded and
 fixed: …" or "rebutted: …" with the evidence.
+
+## Objection ledger response
+Include a fenced JSON block with exactly this shape:
+
+```json
+{
+  "responses": [
+    {
+      "id": "J1-O1",
+      "response": "conceded|rebutted",
+      "evidence": "Concrete file/line/command/section evidence, or a reference to New investigation done this round.",
+      "answer_change": "What changed in the revised answer, or why no change is needed."
+    }
+  ]
+}
+```
+
+Every open id must appear exactly once. A concession or rebuttal without
+evidence is not valid.
 
 ## New investigation done this round
 What you checked in the project because the judges asked, and what you found.
@@ -286,3 +346,6 @@ Otherwise leave `{USER_ANSWERS_SECTION}` empty.
 - If the lead concedes a point with no evidence, that is capitulation, not
   agreement — in the next lead prompt, tell it to concede only what the
   evidence forces.
+- Use `objections.json` as the source of truth for convergence. `## JUDGE
+  STATUS` is a readable summary; every unresolved or closed issue must still be
+  represented by id in the ledger block.

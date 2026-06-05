@@ -89,6 +89,7 @@ These are what make the brainstorm trustworthy.
 brainstorms/<slug>/
 ├── brainstorm.md     # human-readable overview: topic, roles, status, summary
 ├── state.json        # machine state: round, agents + roles + session ids
+├── objections.json   # machine-readable judge objections and closure evidence
 ├── topic.md          # the framed problem given to agents in round 1
 ├── sessions/
 │   ├── <lead-name>/
@@ -134,8 +135,18 @@ Tell the user what is happening between phases — a round takes minutes.
 
 2. **Assign roles.** Default: two agents — `claude` as the **lead**, `codex` as
    a **judge**. The user may swap them, or add more judges. There is exactly
-   one lead and one or more judges. Cost tip to offer if the user is
-   cost-sensitive: judges can be set to a cheaper/faster model.
+   one lead and one or more judges.
+
+   Judging presets:
+   - `cheap` (default): one judge. Lowest cost; lower confidence when a strong
+     lead faces a single weaker judge.
+   - `balanced`: two heterogeneous judges, preferably different model families.
+     Higher cost; reduces single-judge/model-family bias.
+   - `high-confidence`: `balanced` plus a mandatory fresh judge when the
+     objection ledger shows an unearned flip.
+
+   Cost tip to offer if the user is cost-sensitive: judges can be set to a
+   cheaper/faster model.
 
 3. **Preflight the CLIs:**
    ```bash
@@ -143,12 +154,16 @@ Tell the user what is happening between phases — a round takes minutes.
    ```
    If a CLI is missing or unauthenticated, stop and tell the user how to fix it
    (`codex` needs `codex login`; `claude` needs a normal Claude Code login).
-   Suggest they run the fix as `! <command>` in the prompt.
+   This includes a tiny paid Claude probe because Claude Code has no free
+   headless auth-status command. Use `--no-probe-claude` only when the user
+   explicitly wants a free install/version check. Suggest they run the fix as
+   `! <command>` in the prompt.
 
 4. **Create the brainstorm.** Invent a short kebab-case `slug`. Create
    `brainstorms/<slug>/` with a `sessions/<agent>/` subdir per agent and a
    `.raw/` subdir. Write `topic.md` (the framed problem — thorough; this is the
-   agents' brief), `state.json`, and seed `brainstorm.md` and `log.md`.
+   agents' brief), `state.json`, `objections.json`, and seed `brainstorm.md` and
+   `log.md`.
 
 `state.json` shape:
 ```json
@@ -158,10 +173,19 @@ Tell the user what is happening between phases — a round takes minutes.
   "status": "round-1",
   "round": 1,
   "max_rounds": 6,
+  "judging_preset": "cheap",
   "agents": [
     {"name": "claude", "cli": "claude", "role": "lead",  "model": null, "session_id": null},
     {"name": "codex",  "cli": "codex",  "role": "judge", "model": null, "session_id": null}
   ]
+}
+```
+
+`objections.json` starts as:
+```json
+{
+  "version": 1,
+  "objections": []
 }
 ```
 
@@ -210,32 +234,38 @@ Repeat until convergence or the round cap.
    `session_id` set (resumes the session). Run it.
 3. Persist: write `sessions/<judge>/round-N.md`, update `log.md`, `state.json`.
 4. Handle Phase 2 questions if any.
-5. **Check convergence.** Read each judge's `## JUDGE STATUS`. If **every**
-   judge reports `NO FURTHER OBJECTIONS` — and the objections it dropped were
-   genuinely resolved, not abandoned — the brainstorm has converged → Phase 4.
-   A judge that simply goes quiet without engaging is **not** convergence: run
-   one more judge turn telling it to either justify that its concerns are met
-   or state them concretely.
+5. **Update `objections.json`.** Judges must emit a machine-readable objection
+   ledger block. Merge entries by `id`, preserving history:
+   - New or still-open objections have `status: "open"`.
+   - Closed objections have `status: "closed"` and `closed_by` naming the
+     concrete new evidence that resolved them.
+   - If a judge closes or drops an objection without new evidence from the lead,
+     mark it `suspect_closure: true`.
 
-   **Optional fresh-judge control (anti-capitulation).** If a judge flipped
-   `OBJECTIONS REMAIN` → `NO FURTHER OBJECTIONS` *without the lead supplying new
-   evidence that round*, treat the convergence as suspect — argumentative debate
-   makes models capitulate to a confident lead. Before finalizing, you may run a
-   **fresh judge**: a brand-new session (`session_id: null`) that never took part
-   in the debate, given the same round-1 prompt then the lead's final answer as a
-   one-shot judge turn. If it raises a substantive objection, the convergence was
-   fatigue/collapse — reopen the loop. This costs one extra agent run, so use it
-   only when a flip looks unearned, not on every brainstorm.
+6. **Check convergence from the ledger, not prose.** Convergence means every
+   ledger entry is `closed` and no entry has `suspect_closure: true`. The prose
+   `## JUDGE STATUS` is only a human-readable summary. A judge that simply goes
+   quiet without engaging existing ids is **not** convergence: run one more
+   judge turn telling it to close or restate each id concretely.
+
+   **Fresh-judge control (anti-capitulation).** In `high-confidence`, and in
+   any preset where `suspect_closure: true` remains, run a **fresh judge**: a
+   brand-new session (`session_id: null`) that never took part in the debate,
+   given the same round-1 prompt then the lead's final answer as a one-shot
+   judge turn. If it raises a substantive objection, reopen the loop.
 
 **Lead turn** (rounds 3, 5, …):
 1. Build a lead-response prompt: paste **all** judges' latest critiques
-   verbatim, labelled by judge, plus any new user answers. *(Round 3 = first
-   presentation, always full paste. From round 5 you may opt into a verbatim
-   **delta** paste — see "delta paste" in `prompt-templates.md` and the gate
-   below.)*
+   verbatim, labelled by judge, plus the current `objections.json` contents and
+   any new user answers. *(Round 3 = first presentation, always full paste. From
+   round 5 you may opt into a verbatim **delta** paste — see "delta paste" in
+   `prompt-templates.md` and the gate below.)*
 2. Write the round config listing **the lead only**, `session_id` set. Run it.
 3. Persist as above.
-4. Handle Phase 2 questions if any.
+4. Update `objections.json` with the lead's per-id responses. A response to
+   each open id must be `conceded` or `rebutted` and cite evidence or the
+   `## New investigation done this round` section.
+5. Handle Phase 2 questions if any.
 
 **Experimental: delta paste (context optimization, off by default).** On long
 brainstorms the full re-paste of the counterpart's answer/critiques every round
@@ -334,15 +364,22 @@ python3 <skill-dir>/scripts/run_round.py --config /abs/.raw/round-N.config.json
      "session_id": "...", "verdict": "<full answer text>",
      "exit_code": 0, "duration_seconds": 240.3, "timed_out": false,
      "cost_usd": null, "tokens": {"input": 9000, "output": 1200, "total": 10200},
+     "attempts": [{"ok": true, "duration_seconds": 240.3, "error": null}],
      "error": null}
-  ]
+  ],
+  "git_guard": {"available": true, "mutated_tree": false}
 }
 ```
 Use `verdict` to write the session file; carry `session_id` into the next
 round; record timing/cost in `log.md`. For cost, log `cost_usd` when present
 (claude) and fall back to `tokens.total` when it is null (codex reports no
 dollar cost) — that keeps the log symmetric across agents. If `ok` is false,
-read `error` and the matching `.raw/round-N-<agent>.*.log` files to diagnose.
+read `error`, `attempts`, and the matching
+`.raw/round-N-<agent>.attemptK.*.log` files to diagnose. Always inspect
+`git_guard`: if `mutated_tree` is true, stop the brainstorm and tell the user
+the project tree changed during the round. The guard uses `git status`, so it
+does not detect gitignored files; for high-safety runs, use a disposable
+worktree or copy.
 
 ## Notes and edge cases
 
@@ -364,3 +401,6 @@ read `error` and the matching `.raw/round-N-<agent>.*.log` files to diagnose.
 - **Cost.** Each round is real CLI usage. Judge turns run every judge; lead
   turns run one model. Mention this if the user is cost-sensitive, and offer to
   set judges to a cheaper model.
+- **Token accounting.** Claude and Codex usage schemas differ. Treat Codex cache
+  fields as provisional until measured against a real `turn.completed.usage`
+  sample; do not claim exact dollar cost for Codex.

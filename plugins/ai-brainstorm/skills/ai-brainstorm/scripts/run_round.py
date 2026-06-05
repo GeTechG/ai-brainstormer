@@ -18,8 +18,8 @@ Why a script and not raw Bash from the orchestrator:
 
 USAGE
   python3 run_round.py --config <round-config.json>   # run a round
-  python3 run_round.py --check                        # preflight CLIs (free)
-  python3 run_round.py --check --probe-claude         # + tiny paid claude probe
+  python3 run_round.py --check                        # preflight CLIs + auth
+  python3 run_round.py --check --no-probe-claude      # skip paid claude probe
 
 ROUND CONFIG JSON
 {
@@ -42,6 +42,7 @@ RESULT JSON (printed to stdout)
 {
   "ok": true,
   "round": 1,
+  "git_guard": {"available": true, "mutated_tree": false, ...},
   "results": [
     {"name": "claude", "cli": "claude", "ok": true,
      "session_id": "<feed this into next round's config>",
@@ -136,6 +137,84 @@ def _last_json_object(text):
 # claude
 # --------------------------------------------------------------------------
 
+def _extract_text_from_content(content):
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    parts = []
+    for item in content:
+        if isinstance(item, str):
+            parts.append(item)
+        elif isinstance(item, dict):
+            text = item.get("text") or item.get("content")
+            if isinstance(text, str):
+                parts.append(text)
+    return "".join(parts)
+
+
+def _parse_claude_stream(stdout):
+    """Best-effort parser for `claude --output-format stream-json`.
+
+    Claude Code stream events have changed over time, so this accepts both the
+    documented result object and common assistant/content/delta shapes. The
+    important reliability property is that timeout runs can still return the
+    session id and any assistant text printed before the process was killed.
+    """
+    session_id = None
+    usage = None
+    cost_usd = None
+    result_obj = None
+    text_parts = []
+    assistant_text = ""
+
+    for ev in _iter_json_lines(stdout):
+        if ev.get("session_id"):
+            session_id = ev["session_id"]
+        if isinstance(ev.get("usage"), dict):
+            usage = ev.get("usage")
+        if isinstance(ev.get("total_cost_usd"), (int, float)):
+            cost_usd = ev.get("total_cost_usd")
+
+        typ = ev.get("type")
+        if typ == "result" or ev.get("subtype") in ("success", "error"):
+            result_obj = ev
+            continue
+
+        if isinstance(ev.get("result"), str):
+            text_parts.append(ev["result"])
+        if isinstance(ev.get("delta"), str):
+            text_parts.append(ev["delta"])
+        if isinstance(ev.get("text"), str):
+            text_parts.append(ev["text"])
+
+        msg = ev.get("message")
+        if isinstance(msg, dict):
+            if isinstance(msg.get("usage"), dict):
+                usage = msg.get("usage")
+            text = _extract_text_from_content(msg.get("content"))
+            if text:
+                assistant_text = text
+        text = _extract_text_from_content(ev.get("content"))
+        if text:
+            assistant_text = text
+
+    if result_obj:
+        if result_obj.get("session_id"):
+            session_id = result_obj["session_id"]
+        if isinstance(result_obj.get("usage"), dict):
+            usage = result_obj.get("usage")
+        if isinstance(result_obj.get("total_cost_usd"), (int, float)):
+            cost_usd = result_obj.get("total_cost_usd")
+
+    verdict = ""
+    if result_obj and isinstance(result_obj.get("result"), str):
+        verdict = result_obj.get("result", "").strip()
+    if not verdict:
+        verdict = (assistant_text or "".join(text_parts)).strip()
+    return result_obj, verdict, session_id, usage, cost_usd
+
+
 def run_claude(agent, project_dir, prompt_text, timeout):
     """Run the Claude Code CLI headless, with file-editing tools disabled.
 
@@ -148,11 +227,12 @@ def run_claude(agent, project_dir, prompt_text, timeout):
 
     Plan mode is deliberately NOT used: in headless mode it diverts the agent's
     answer into a separate plan file and returns only a short pointer, which
-    breaks verdict capture. `--output-format json` hands back the full answer
-    plus the session id and cost.
+    breaks verdict capture. `stream-json` is used instead of final-only JSON so
+    a timeout can still recover the session id and partial assistant text.
     """
     cmd = [
-        "claude", "-p", "--output-format", "json",
+        "claude", "-p", "--output-format", "stream-json",
+        "--include-partial-messages",
         "--permission-mode", "bypassPermissions",
         "--disallowedTools", "Write,Edit,MultiEdit,NotebookEdit",
     ]
@@ -163,28 +243,32 @@ def run_claude(agent, project_dir, prompt_text, timeout):
 
     code, out, err, secs, timed_out = _run(cmd, project_dir, prompt_text, timeout)
 
-    obj = _last_json_object(out)
-    if obj is None:
+    obj, verdict, session_id, usage, cost_usd = _parse_claude_stream(out)
+    if obj is None and not verdict:
         tail = (err or out)[-600:].strip()
         return _result(agent, code, secs, timed_out, out, err, ok=False,
                        verdict="", session_id=agent.get("session_id"),
                        cost_usd=None,
-                       error="could not parse claude JSON output. tail: " + tail)
+                       error="could not parse claude stream-json output. tail: " + tail)
 
-    is_error = bool(obj.get("is_error")) or obj.get("subtype") != "success"
-    verdict = (obj.get("result") or "").strip()
+    is_error = bool(obj and obj.get("is_error"))
+    if obj and obj.get("subtype") not in (None, "success"):
+        is_error = True
     ok = (not is_error) and bool(verdict) and not timed_out
     error = None
-    if timed_out:
+    if timed_out and verdict:
+        error = "timed out after %ds (partial answer recovered)" % timeout
+    elif timed_out:
         error = "timed out after %ds" % timeout
     elif is_error:
-        error = "claude reported error (subtype=%s)" % obj.get("subtype")
+        error = "claude reported error (subtype=%s)" % (obj or {}).get("subtype")
     elif not verdict:
         error = "claude returned an empty result"
     return _result(agent, code, secs, timed_out, out, err, ok=ok,
-                   verdict=verdict, session_id=obj.get("session_id"),
-                   cost_usd=obj.get("total_cost_usd"),
-                   tokens=_token_summary(obj.get("usage")), error=error)
+                   verdict=verdict,
+                   session_id=session_id or agent.get("session_id"),
+                   cost_usd=cost_usd,
+                   tokens=_token_summary(usage), error=error)
 
 
 # --------------------------------------------------------------------------
@@ -370,26 +454,54 @@ def run_agent(agent, cfg):
                                 % (rnd, agent["name"]))
         return run_codex(agent, project_dir, prompt_text, timeout, last_msg)
 
+    attempts = []
+
+    def _record_attempt(res):
+        attempts.append({
+            "ok": res.get("ok"),
+            "timed_out": res.get("timed_out"),
+            "exit_code": res.get("exit_code"),
+            "duration_seconds": res.get("duration_seconds"),
+            "error": res.get("error"),
+            "_stdout": res.get("_stdout", ""),
+            "_stderr": res.get("_stderr", ""),
+        })
+
     # One automatic retry for transient (non-timeout, non-auth) failures - a
     # dropped socket or rate-limit should not cost a whole manual rerun.
     res = _invoke()
+    _record_attempt(res)
     if _is_retryable(res):
         sys.stderr.write("  [%s] transient failure (%s) - retrying once...\n"
                          % (agent["name"], res["error"]))
         sys.stderr.flush()
         res = _invoke()
+        _record_attempt(res)
 
     # persist raw output for debugging, then drop it from the returned JSON
-    stdout = res.pop("_stdout", "")
-    stderr = res.pop("_stderr", "")
-    for suffix, data in (("stdout", stdout), ("stderr", stderr)):
-        try:
-            path = os.path.join(raw_dir, "round-%s-%s.%s.log"
-                                % (rnd, agent["name"], suffix))
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write(data)
-        except Exception:
-            pass
+    for idx, attempt in enumerate(attempts, start=1):
+        attempt["log_files"] = {}
+
+    res.pop("_stdout", "")
+    res.pop("_stderr", "")
+
+    for attempt_no, attempt in enumerate(attempts, start=1):
+        out_data = attempt.pop("_stdout", "")
+        err_data = attempt.pop("_stderr", "")
+        for suffix, data in (("stdout", out_data), ("stderr", err_data)):
+            try:
+                attempt_path = os.path.join(raw_dir, "round-%s-%s.attempt%s.%s.log"
+                                            % (rnd, agent["name"], attempt_no, suffix))
+                with open(attempt_path, "w", encoding="utf-8") as fh:
+                    fh.write(data)
+                attempts[attempt_no - 1]["log_files"][suffix] = attempt_path
+                legacy_path = os.path.join(raw_dir, "round-%s-%s.%s.log"
+                                           % (rnd, agent["name"], suffix))
+                with open(legacy_path, "w", encoding="utf-8") as fh:
+                    fh.write(data)
+            except Exception:
+                pass
+    res["attempts"] = attempts
 
     status = "ok" if res["ok"] else ("FAILED: " + str(res["error"]))
     sys.stderr.write("  [%s] done in %ss - %s\n"
@@ -402,7 +514,7 @@ def run_agent(agent, cfg):
 # preflight check
 # --------------------------------------------------------------------------
 
-def do_check(probe_claude=False):
+def do_check(probe_claude=True):
     report = {"ok": True, "clis": {}}
     for cli in ("claude", "codex"):
         path = shutil.which(cli)
@@ -424,17 +536,18 @@ def do_check(probe_claude=False):
         try:
             st = subprocess.run(["codex", "login", "status"],
                                 capture_output=True, text=True, timeout=20)
-            line = (st.stdout or st.stderr).strip().splitlines()
-            report["clis"]["codex"]["auth"] = line[0] if line else "unknown"
-            if "Logged in" not in report["clis"]["codex"]["auth"]:
+            text = (st.stdout + st.stderr).strip()
+            lines = text.splitlines()
+            logged_in = [line for line in lines if "Logged in" in line]
+            report["clis"]["codex"]["auth"] = (
+                logged_in[-1] if logged_in else (lines[-1] if lines else "unknown"))
+            if not logged_in:
                 report["ok"] = False
         except Exception as exc:
             report["clis"]["codex"]["auth"] = "could not check: %s" % exc
 
-    # claude has no headless auth-status command, so its auth is normally
-    # verified implicitly by the first real round (keeping --check free).
-    # --probe-claude opts into an explicit, tiny, *paid* round-trip that
-    # surfaces auth/connectivity problems now instead of mid-brainstorm.
+    # claude has no headless auth-status command, so auth/connectivity requires
+    # a tiny paid round-trip unless the caller explicitly opts out.
     if probe_claude and report["clis"]["claude"]["installed"]:
         try:
             pr = subprocess.run(
@@ -458,6 +571,106 @@ def do_check(probe_claude=False):
 
 
 # --------------------------------------------------------------------------
+# git guard
+# --------------------------------------------------------------------------
+
+def _git_root(project_dir):
+    try:
+        res = subprocess.run(["git", "-C", project_dir, "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, timeout=20)
+    except Exception:
+        return None
+    if res.returncode != 0:
+        return None
+    return res.stdout.strip() or None
+
+
+def _status_paths(project_dir, raw_dir):
+    root = _git_root(project_dir)
+    if not root:
+        return None, None
+    try:
+        rel_raw = os.path.relpath(os.path.abspath(raw_dir), root)
+    except Exception:
+        rel_raw = None
+    try:
+        res = subprocess.run(["git", "-C", root, "status", "--porcelain=v1", "--untracked-files=all"],
+                             capture_output=True, text=True, timeout=30)
+    except Exception:
+        return root, None
+    if res.returncode != 0:
+        return root, None
+
+    entries = []
+    for line in res.stdout.splitlines():
+        path = line[3:] if len(line) > 3 else line
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        if rel_raw and (path == rel_raw or path.startswith(rel_raw.rstrip("/") + "/")):
+            continue
+        entries.append(line)
+    return root, sorted(entries)
+
+
+def git_guard_before(cfg):
+    project_dir = cfg["project_dir"]
+    raw_dir = cfg["raw_dir"]
+    root, entries = _status_paths(project_dir, raw_dir)
+    if root is None:
+        return {
+            "available": False,
+            "mutated_tree": None,
+            "warning": "mutation detection unavailable: project_dir is not inside a git worktree",
+        }
+    if entries is None:
+        return {
+            "available": False,
+            "mutated_tree": None,
+            "git_root": root,
+            "warning": "mutation detection unavailable: could not read git status",
+        }
+    return {"available": True, "git_root": root, "before": entries}
+
+
+def git_guard_after(cfg, before):
+    if not before.get("available"):
+        return before
+    root, after = _status_paths(cfg["project_dir"], cfg["raw_dir"])
+    if after is None:
+        return {
+            "available": False,
+            "mutated_tree": None,
+            "git_root": before.get("git_root") or root,
+            "warning": "mutation detection unavailable: could not read git status after round",
+        }
+    before_entries = before.get("before") or []
+    added = [x for x in after if x not in before_entries]
+    removed = [x for x in before_entries if x not in after]
+    return {
+        "available": True,
+        "git_root": before.get("git_root") or root,
+        "mutated_tree": bool(added or removed),
+        "before_dirty": bool(before_entries),
+        "added_or_changed": added,
+        "removed_or_reverted": removed,
+        "note": "Uses git status; gitignored files are not detected.",
+    }
+
+
+def validate_raw_dir(project_dir, raw_dir):
+    """Return an error string if raw_dir is not an allowed script-write path."""
+    project_abs = os.path.abspath(project_dir)
+    raw_abs = os.path.abspath(raw_dir)
+    try:
+        common = os.path.commonpath([project_abs, raw_abs])
+    except ValueError:
+        return "raw_dir must be inside project_dir"
+    if common != project_abs:
+        return "raw_dir must be inside project_dir"
+    return None
+
+
+# --------------------------------------------------------------------------
 # main
 # --------------------------------------------------------------------------
 
@@ -467,18 +680,25 @@ def main():
     ap.add_argument("--check", action="store_true",
                     help="verify the CLIs are installed and authenticated")
     ap.add_argument("--probe-claude", action="store_true",
-                    help="with --check, also run a tiny (paid) claude round-trip "
-                         "to verify its auth/connectivity now; off by default")
+                    help="with --check, run a tiny (paid) claude round-trip "
+                         "to verify its auth/connectivity (default)")
+    ap.add_argument("--no-probe-claude", action="store_true",
+                    help="with --check, skip the tiny paid claude auth probe")
     args = ap.parse_args()
 
     if args.check:
-        return do_check(probe_claude=args.probe_claude)
+        return do_check(probe_claude=(not args.no_probe_claude))
 
     if not args.config:
         ap.error("either --config or --check is required")
 
     with open(args.config, "r", encoding="utf-8") as fh:
         cfg = json.load(fh)
+
+    raw_dir_error = validate_raw_dir(cfg["project_dir"], cfg["raw_dir"])
+    if raw_dir_error:
+        print(json.dumps({"ok": False, "error": raw_dir_error}, ensure_ascii=False))
+        return 1
 
     os.makedirs(cfg["raw_dir"], exist_ok=True)
     agents = cfg["agents"]
@@ -490,12 +710,17 @@ def main():
                      % (cfg.get("round", "?"), len(agents)))
     sys.stderr.flush()
 
+    guard_before = git_guard_before(cfg)
+
     with ThreadPoolExecutor(max_workers=len(agents)) as pool:
         results = list(pool.map(lambda a: run_agent(a, cfg), agents))
+
+    git_guard = git_guard_after(cfg, guard_before)
 
     out = {
         "ok": all(r["ok"] for r in results),
         "round": cfg.get("round"),
+        "git_guard": git_guard,
         "results": results,
     }
     print(json.dumps(out, indent=2, ensure_ascii=False))
