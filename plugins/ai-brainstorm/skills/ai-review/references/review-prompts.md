@@ -5,8 +5,13 @@ file, and passes the file to `run_round.py`. The judge runs **headless and
 non-interactive** — it cannot ask a question mid-run, so it routes anything it
 needs through a dedicated section.
 
-Write the prompts in the **user's language** so the findings come back in that
-language. Placeholders look like `{LIKE_THIS}`.
+Write every prompt in **English**. All communication between you and the judge —
+the prompts you write and the findings, ledgers, and `## QUESTIONS FOR USER` the
+judge returns — is in English, no matter what language the user speaks. Only your
+*direct* interaction with the user follows the user's language: relay the judge's
+questions in the user's language and write the user-facing deliverable in the
+user's language. You translate at that boundary. Placeholders look like
+`{LIKE_THIS}`.
 
 There are two judge prompts:
 - **Judge round 1** — full review of the scope from a cold, clean session.
@@ -42,6 +47,8 @@ Ground rules — they matter:
 - You run non-interactively. If you need a decision or fact only the user has, put
   it under `## QUESTIONS FOR USER`; the respondent will get an answer.
 - Use the project's available skills, tools, and MCP servers as needed.
+- Write your entire response in English. This is an inter-agent exchange
+  conducted in English; the respondent translates for the user where needed.
 ```
 
 ### Compact resumed rules block (rounds ≥ 2)
@@ -50,7 +57,7 @@ Ground rules — they matter:
 READ-ONLY: do not modify, create, or delete files. Re-run `git diff HEAD` /
 `git status` to see the CURRENT tree. Do not read `reviews/` or `brainstorms/`.
 Cite file:line with checkable evidence. Do not inflate severity; no new nits on
-unchanged code.
+unchanged code. Respond in English.
 ```
 
 ---
@@ -183,6 +190,89 @@ Exactly one of:
 
 ---
 
+## Judge lite — round 1 (quick pre-commit review)
+
+For **lite mode** (see SKILL.md → "Lite mode"). Short, low-token, **no JSON
+ledger**: the judge replies with a plain findings list, so there is nothing to
+schema-validate and far fewer output tokens. Keep this prompt free of the words
+`ledger`, `objections`, `responses`, `claims`, `"findings": [` etc. so the shared
+runner's ledger validator stays off. Use a cheap/fast judge model.
+
+```
+You are a code-review JUDGE in a cross-model review, and you are READ-ONLY:
+investigate freely (read, search, `git diff HEAD`, `git status`) but do NOT
+modify, create, or delete any file. Do not read anything under `reviews/` or
+`brainstorms/`.
+
+This is a QUICK pre-commit pass. The change under review is the current
+UNCOMMITTED state of this project — run `git diff HEAD` and `git status`
+yourself (include new untracked files) and review only what this change
+introduces. Note pre-existing issues at most in passing; they do not block.
+
+Focus on REAL problems this change introduces, in this order of attention:
+1. Correctness / logic bugs — wrong conditionals, off-by-one, null/undefined,
+   dead paths, "does it do what it claims".
+2. Edge cases & error handling — unhandled exceptions, silent/swallowed failures,
+   obvious races in concurrent code.
+3. Security — injection, hardcoded secrets, missing input validation, data/PII
+   exposure.
+Mention a convention or simplicity issue only if it is clearly worth fixing
+before commit. Do not bury this in style nits.
+
+Severity: `blocker` (breaks prod / security hole), `important` (a real bug or
+missing case worth fixing), `nit` (style/preference — list at most ~3, never
+blocks). Do NOT inflate severity. EVERY finding must cite `file:line` and a
+concrete, checkable reason; if you cannot ground it, drop it.
+
+Reply in English, in this exact shape, nothing fancier:
+
+## Findings
+One line each, ordered by severity:
+`[F1] blocker — path/to/file:42 — what is wrong; suggested fix in a few words`
+(write "none" if there are no blocker/important findings)
+
+## VERDICT
+Exactly one of:
+  CLEAN — no blocker or important finding.
+  CHANGES_REQUESTED — followed by the F-ids that are blocker/important.
+
+## QUESTIONS
+Only if a decision or fact only the user has blocks a finding; omit otherwise.
+```
+
+---
+
+## Judge lite — re-review (resumed session)
+
+Sent to the **resumed** lite session after you fixed/rebutted. Keep it tiny — it
+still remembers its findings.
+
+```
+READ-ONLY: do not modify/create/delete files; do not read `reviews/` or
+`brainstorms/`. Re-run `git diff HEAD` / `git status` to see the CURRENT tree.
+
+I addressed your findings. For each one you raised: if the current code resolves
+it, say "resolved" and name what fixed it; if it still stands, keep it and say
+what is still wrong. Where I pushed back, weigh my reasoning on the evidence, not
+the tone:
+
+{RESPONDENT_REBUTTALS}
+
+Raise a NEW finding only for a real blocker/important problem you can ground in
+`file:line` — no new nits on unchanged code.
+
+Reply in English, with the same compact shape:
+
+## Findings
+One line per still-open finding (id, severity, file:line, what remains). Write
+"none" if nothing blocker/important remains.
+
+## VERDICT
+CLEAN (no blocker/important left) or CHANGES_REQUESTED (+ the open ids).
+```
+
+---
+
 ## `{SCOPE}` — how to describe what is under review
 
 Default (uncommitted changes):
@@ -243,7 +333,9 @@ The user answered questions raised earlier. Treat these as authoritative:
 {QUESTIONS_AND_ANSWERS}
 ```
 
-Otherwise leave it empty.
+Otherwise leave it empty. The prompt is in English, so translate the user's
+questions and answers into English in `{QUESTIONS_AND_ANSWERS}` before pasting
+them — keep the meaning exact.
 
 ---
 

@@ -5,8 +5,14 @@ file to `run_round.py`. Each agent runs **headless and non-interactive** — it
 cannot ask a question mid-run, so the templates route questions through a
 dedicated section instead.
 
-Write the prompts in the **user's language** so the verdicts come back in that
-language too. Placeholders look like `{LIKE_THIS}`.
+Write every prompt in **English**. All agent-to-agent communication — both the
+prompts you write and the responses the agents produce — is in English, no matter
+what language the user speaks. The agents' verdicts, critiques, ledgers, and
+`## QUESTIONS FOR USER` therefore come back in English too. Only your *direct*
+interaction with the user follows the user's language: when you relay an agent's
+questions to the user, ask in the user's language; when you write the
+user-facing deliverable, write it in the user's language. You translate at that
+boundary. Placeholders look like `{LIKE_THIS}`.
 
 The brainstorm has two **modes** (see `SKILL.md`):
 
@@ -48,6 +54,8 @@ rules — they matter:
 - Be rigorous and concrete. Cite specific files, lines, commands, and evidence.
   Vague claims are worthless here; checkable ones move the brainstorm forward.
 - Use the project's available skills, tools and MCP servers as needed.
+- Write your entire response in English. This is an inter-agent exchange
+  conducted in English; the orchestrator translates for the user where needed.
 ```
 
 ### Compact resumed-round rules block
@@ -58,7 +66,7 @@ rule after a failure.
 ```
 READ-ONLY: do not modify, create, or delete files. Do not read `brainstorms/`.
 Stay inside the project. Ask only under `## QUESTIONS FOR USER`. Be concrete:
-cite files, lines, commands, and evidence.
+cite files, lines, commands, and evidence. Respond in English.
 ```
 
 ---
@@ -601,6 +609,9 @@ The user answered questions raised earlier. Treat these as authoritative:
 ```
 
 Otherwise leave `{USER_ANSWERS_SECTION}` empty.
+
+The prompt is in English, so translate the user's questions and answers into
+English in `{QUESTIONS_AND_ANSWERS}` before pasting them — keep the meaning exact.
 
 ---
 

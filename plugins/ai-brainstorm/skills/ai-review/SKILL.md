@@ -15,7 +15,13 @@ description: >-
   branch with another model", "run a code review on my uncommitted changes", "let
   a judge model inspect what I changed and loop until it's clean". Trigger even if
   the user does not say "review" but clearly wants an independent model to
-  scrutinize their changes or branch and drive them to a clean state.
+  scrutinize their changes or branch and drive them to a clean state. There is
+  also a **lite mode** — a fast, low-token, file-free pass meant to run right
+  before a commit: no review directory is created, the judge runs immediately,
+  returns a short findings list, you apply the fixes, and it loops once or twice
+  until clean. Trigger lite mode when the user wants a *quick / lightweight /
+  pre-commit* check — e.g. "облегчённое ревью", "быстрое ревью перед коммитом",
+  "quick review before I commit", "lite cross-model check", "погоняй судью по-быстрому".
 ---
 
 # AI Review
@@ -42,6 +48,15 @@ the change is clean.
 Why a different model judges: a second model from another family catches what
 your own model's blind spots miss. The judge starts cold (clean session, no
 memory of your reasoning) so it reviews the *code*, not your rationalizations.
+
+**Two modes.** Default is the **full** review documented below — it writes a
+`reviews/<slug>/` record, supports PR/branch scope, runs a JSON findings ledger,
+and is built for a thorough, resumable, auditable sign-off. The **lite mode**
+(see "Lite mode" near the end) is the opposite trade-off: zero curated files, a
+short non-JSON findings list, uncommitted changes only, one cheap judge, capped
+at ~2 rounds — a fast, low-token polish to run right before you commit. When the
+user asks for a *quick / lightweight / pre-commit* check, use lite mode; when
+they want a real audit or a PR review, use the full flow.
 
 ## Roles
 
@@ -159,7 +174,14 @@ reviews/<slug>/
 └── review-summary.md    # ← THE DELIVERABLE
 ```
 
-Write `review.md`, `review-summary.md`, etc. in the **user's language**. This
+**Language policy.** All communication between you and the judge is in
+**English** — every prompt you send and every findings list, ledger, and
+question the judge returns. The `rounds/` and `.raw/` files therefore hold
+English. Only your *direct* interaction with the user follows the user's
+language: relay the judge's questions in the user's language, and write the
+user-facing curated files — `review.md`, `review-summary.md`, and the chat
+summaries — in the user's language. You are the translation boundary; translate
+user answers into English before feeding them into the next judge prompt. This
 directory is runtime output (gitignored) — temporary, for logging and resume.
 
 ## The turn structure
@@ -393,6 +415,72 @@ You add, per finding, your response when you act on it:
 stop signal — but verify the latest round actually engaged the change; a thin
 rubber-stamp on round 1 is not a real review (run another judge round asking for
 genuine scrutiny).
+
+## Lite mode (quick pre-commit review)
+
+Lite mode is the fast path: you are about to commit and want a different model to
+catch the obvious bugs first, with the least possible ceremony and token spend.
+It keeps the **core invariants** of the full review — the judge is a *different*,
+*read-only* model that reads the *live* tree itself and keeps *one resumed
+session* across rounds — but strips everything built for auditability.
+
+**What it drops (vs. the full flow), and why it is cheaper:**
+
+- **No `reviews/<slug>/` record.** No `review.md`, `state.json`, `scope.md`,
+  `findings.json`, per-round logs, or `review-summary.md`. You track the few open
+  findings in your own working context and summarize in chat. The *only* thing on
+  disk is the mechanically-required prompt file + `.raw/` logs the runner always
+  writes (gitignored runtime output).
+- **No JSON findings ledger.** The judge returns a short prose list, not a
+  schema-validated block — so there is no ledger to merge, no ledger-retry round,
+  and far fewer output tokens. (Keep the lite prompt free of the headings/keys in
+  "Findings ledger schema" so the shared runner's ledger validator stays off.)
+- **Scope is always the uncommitted change** (`git diff HEAD` + untracked). No
+  scope negotiation, no PR/branch mode — if the user wants a branch/PR review or a
+  real audit, use the full flow instead.
+- **Tight defaults:** one judge, stop threshold `blocker + important`, **`max_rounds = 2`**
+  (often just one fix pass), correctness-first dimensions only.
+
+**Extra token savings to apply:**
+
+- **Use a cheap/fast judge model.** Set `model` in the config to a small model:
+  for a `claude` judge, `"model": "claude-haiku-4-5-20251001"`; for `codex`, pass
+  a faster model via `model`. Default codex (`model: null`) is fine too — it
+  reports no dollar cost, just tokens.
+- **Skip the paid claude probe** in preflight: `run_round.py --check --no-probe-claude`
+  (or skip preflight entirely if a judge round already ran this session).
+- **Keep the prompt minimal** — the lite templates in `references/review-prompts.md`
+  ("Judge lite — round 1" / "Judge lite — re-review") are deliberately short; do
+  not pad them with the full dimension catalogue.
+- **Loop only on `blocker`/`important`.** Nits are listed once and not chased.
+
+**Lite flow:**
+
+1. **Confirm in one line** what is under review (uncommitted changes) and the
+   judge. Default judge `codex`; offer `claude` (haiku) if codex is unavailable.
+   If `git diff HEAD` is empty *and* there are no untracked files, say so and stop.
+2. **Read your own diff** (`git diff HEAD`, `git status`) — briefly; you still need
+   enough understanding to fix or rebut.
+3. **Judge round 1.** Build the prompt from the *Judge lite — round 1* template,
+   write it to a `.raw/` prompt file, and run one agent via `run_round.py` with
+   `raw_dir` = `reviews/.lite/.raw` (a single fixed throwaway dir — no per-review
+   slug). `session_id: null`. Read back `verdict` and the returned `session_id`;
+   check `git_guard.mutated_tree`.
+4. **Apply fixes.** For each `blocker`/`important` finding: confirm at the cited
+   `file:line`, then fix it minimally in the working tree, or rebut it with
+   evidence. Note nits but do not chase them. No per-finding files — track them in
+   chat.
+5. **Round 2 (re-review), only if you fixed/rebutted anything.** Resume the judge's
+   session with the *Judge lite — re-review* template (short). If it returns
+   `CLEAN`, stop. If `blocker`/`important` remain and `max_rounds` is reached, stop
+   and report what is still open — let the user decide whether to commit anyway.
+6. **Report in chat** (no deliverable file): one or two lines — outcome
+   (clean / clean-with-nits / open items left), what the judge caught and what you
+   changed, and any nits worth a follow-up. Then the user commits.
+
+The config and `run_round.py` call are identical to the full flow (one judge
+agent, resume by `session_id`), just with the lite prompt, the shared
+`reviews/.lite/.raw` dir, and `max_rounds = 2`.
 
 ## Notes and edge cases
 

@@ -142,7 +142,14 @@ brainstorms/<slug>/
 └── final-plan.md     # ← THE DELIVERABLE
 ```
 
-Write `final-plan.md`, `brainstorm.md`, etc. in the **user's language**.
+**Language policy.** All agent-to-agent communication is in **English** — every
+prompt you send to an agent and every verdict, critique, and ledger they return.
+The session files under `sessions/` and `.raw/` therefore hold English. Only your
+*direct* interaction with the user follows the user's language: you relay agents'
+questions to the user in the user's language, and you write the user-facing
+curated files — `final-plan.md`, `brainstorm.md`, and the chat summaries — in the
+user's language. You are the translation boundary; translate user answers into
+English before feeding them into the next round's prompts.
 
 ## The turn structure
 
