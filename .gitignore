@@ -1,6 +1,7 @@
-# runtime output — brainstorms are created inside whatever project the skill
-# runs in; they are not part of the plugin distribution
+# runtime output — brainstorms and reviews are created inside whatever project
+# the skill runs in; they are not part of the plugin distribution
 brainstorms/
+reviews/
 
 # local tooling state
 .serena/
