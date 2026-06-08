@@ -19,8 +19,11 @@ description: >-
   also a **lite mode** — a fast, low-token, file-free pass meant to run right
   before a commit: no review directory is created, the judge runs immediately,
   returns a short findings list, you apply the fixes, and it loops once or twice
-  until clean. Trigger lite mode when the user wants a *quick / lightweight /
-  pre-commit* check — e.g. "облегчённое ревью", "быстрое ревью перед коммитом",
+  until clean. Lite mode is **no weaker at finding problems** than the full
+  review — it scrutinizes the same dimensions and flags the same issues at the
+  same severities; what it strips is the ceremony (files, JSON ledger, PR scope),
+  not the detection rigor. Trigger lite mode when the user wants a *quick /
+  lightweight / pre-commit* check — e.g. "облегчённое ревью", "быстрое ревью перед коммитом",
   "quick review before I commit", "lite cross-model check", "погоняй судью по-быстрому".
 ---
 
@@ -52,11 +55,15 @@ memory of your reasoning) so it reviews the *code*, not your rationalizations.
 **Two modes.** Default is the **full** review documented below — it writes a
 `reviews/<slug>/` record, supports PR/branch scope, runs a JSON findings ledger,
 and is built for a thorough, resumable, auditable sign-off. The **lite mode**
-(see "Lite mode" near the end) is the opposite trade-off: zero curated files, a
-short non-JSON findings list, uncommitted changes only, one cheap judge, capped
-at ~2 rounds — a fast, low-token polish to run right before you commit. When the
+(see "Lite mode" near the end) is the opposite trade-off on *ceremony*, not on
+*rigor*: zero curated files, a short non-JSON findings list, uncommitted changes
+only, one cheap judge, capped at ~2 rounds — a fast, low-token polish to run
+right before you commit. It reviews the **same dimensions** and surfaces the
+**same problems at the same severities** as the full flow; the only things it
+gives up are the on-disk record, the JSON ledger, and PR/branch scope. When the
 user asks for a *quick / lightweight / pre-commit* check, use lite mode; when
-they want a real audit or a PR review, use the full flow.
+they want an auditable record, a resumable run, or a PR/branch review, use the
+full flow.
 
 ## Roles
 
@@ -419,10 +426,17 @@ genuine scrutiny).
 ## Lite mode (quick pre-commit review)
 
 Lite mode is the fast path: you are about to commit and want a different model to
-catch the obvious bugs first, with the least possible ceremony and token spend.
-It keeps the **core invariants** of the full review — the judge is a *different*,
+review your change first, with the least possible ceremony and token spend. It
+keeps the **core invariants** of the full review — the judge is a *different*,
 *read-only* model that reads the *live* tree itself and keeps *one resumed
 session* across rounds — but strips everything built for auditability.
+
+**Lite does not find fewer problems than the full review.** It judges the same
+dimensions and reports the same findings at the same severities — it highlights
+everything the full flow would. What it trades away is *ceremony*, not detection:
+no on-disk record, no JSON ledger, no PR/branch scope. Do not undersell it to the
+user as a shallower check; it is the full review's eye with the full review's
+paperwork removed.
 
 **What it drops (vs. the full flow), and why it is cheaper:**
 
@@ -439,7 +453,9 @@ session* across rounds — but strips everything built for auditability.
   scope negotiation, no PR/branch mode — if the user wants a branch/PR review or a
   real audit, use the full flow instead.
 - **Tight defaults:** one judge, stop threshold `blocker + important`, **`max_rounds = 2`**
-  (often just one fix pass), correctness-first dimensions only.
+  (often just one fix pass). It still reviews the **full dimension set** (the same
+  ten as the full flow) — leading with correctness — so nothing the full review
+  would catch slips through; it just reports them in the compact format below.
 
 **Extra token savings to apply:**
 
@@ -456,6 +472,10 @@ session* across rounds — but strips everything built for auditability.
 
 **Lite flow:**
 
+0. **Clean stale logs.** Before starting, wipe the throwaway log dir from any
+   previous lite run — `rm -rf reviews/.lite` — so this run starts fresh and old
+   prompts/output do not pile up. (It is gitignored runtime output; safe to
+   delete.)
 1. **Confirm in one line** what is under review (uncommitted changes) and the
    judge. Default judge `codex`; offer `claude` (haiku) if codex is unavailable.
    If `git diff HEAD` is empty *and* there are no untracked files, say so and stop.
@@ -477,6 +497,9 @@ session* across rounds — but strips everything built for auditability.
 6. **Report in chat** (no deliverable file): one or two lines — outcome
    (clean / clean-with-nits / open items left), what the judge caught and what you
    changed, and any nits worth a follow-up. Then the user commits.
+7. **Clean up the logs.** Once the review finishes successfully (judge returned
+   `CLEAN`, or you have reported the remaining open items), remove the throwaway
+   log dir — `rm -rf reviews/.lite` — so nothing is left behind before the commit.
 
 The config and `run_round.py` call are identical to the full flow (one judge
 agent, resume by `session_id`), just with the lite prompt, the shared

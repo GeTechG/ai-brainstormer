@@ -209,15 +209,25 @@ UNCOMMITTED state of this project — run `git diff HEAD` and `git status`
 yourself (include new untracked files) and review only what this change
 introduces. Note pre-existing issues at most in passing; they do not block.
 
-Focus on REAL problems this change introduces, in this order of attention:
+Review REAL problems this change introduces across all of these dimensions —
+this is a fast pass, not a shallow one, so do not skip a dimension that applies.
+Lead your attention with correctness, but cover the rest:
 1. Correctness / logic bugs — wrong conditionals, off-by-one, null/undefined,
    dead paths, "does it do what it claims".
 2. Edge cases & error handling — unhandled exceptions, silent/swallowed failures,
    obvious races in concurrent code.
 3. Security — injection, hardcoded secrets, missing input validation, data/PII
    exposure.
-Mention a convention or simplicity issue only if it is clearly worth fixing
-before commit. Do not bury this in style nits.
+4. Project-convention adherence — existing patterns, structure, naming, rules in
+   CLAUDE.md / AGENTS.md.
+5. Simplicity / reuse — duplication, over-engineering, reinventing existing utils.
+6. Tests — new branches covered, tests assert real behavior, they pass.
+7. Architecture / design — coupling, separation of concerns, integration.
+8. Performance / efficiency — only when it is a REAL problem, not speculative.
+9. Production readiness — migrations, backward compatibility, rollback safety.
+10. Documentation / comments — completeness; comments left stale by the change.
+Adapt these to what the project actually is; do not force an irrelevant
+dimension. Do not bury the review in style nits.
 
 Severity: `blocker` (breaks prod / security hole), `important` (a real bug or
 missing case worth fixing), `nit` (style/preference — list at most ~3, never
