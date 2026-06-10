@@ -1,8 +1,8 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "ai-brainstorm",
-  "version": "1.8.1",
-  "description": "Multi-agent cross-model tooling for Claude Code. Two skills: `ai-brainstorm` runs an adversarial lead + judges debate that produces one battle-tested plan; `ai-review` has a different-model judge review your uncommitted changes round by round while you fix or rebut its findings, until the change is clean — with a lite mode for a fast, low-token, file-free pre-commit pass.",
+  "version": "1.9.0",
+  "description": "Multi-agent cross-model tooling for Claude Code. Two skills: `ai-brainstorm` runs an adversarial lead + judges debate that produces one battle-tested plan; `ai-review` has a different-model judge review your uncommitted changes round by round while you fix or rebut its findings, until the change is clean — plus a lite mode for a fast, low-token pre-commit pass and a full-codebase mode that fans cross-model judge specialists across the whole project.",
   "author": {
     "name": "sergey"
   },

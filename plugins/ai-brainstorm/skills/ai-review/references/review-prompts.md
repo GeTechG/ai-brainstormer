@@ -283,6 +283,139 @@ CLEAN (no blocker/important left) or CHANGES_REQUESTED (+ the open ids).
 
 ---
 
+## Judge specialist — round 1 (full-codebase mode)
+
+For **full-codebase mode** (see SKILL.md → "Full-codebase mode"). One of these
+per specialist; each owns ONE class of problem and audits the whole tree (or its
+assigned area). Specialists run in parallel, each its own cross-model session.
+Fill `{SPECIALTY}`, `{SPECIALTY_DIMENSIONS}`, `{ID_PREFIX}`, and `{AREA_SCOPE}`
+(see "Full-codebase specialist placeholders" below).
+
+```
+You are a code-review JUDGE specialist in a cross-model, whole-codebase audit. A
+different model is responsible for this code; you review it independently.
+
+Ground rules — they matter:
+- You are READ-ONLY. Investigate freely (read, search, run read-only commands
+  like `git ls-files`, `git log`, `git grep`, `git status`) but do NOT modify,
+  create, or delete any file. Your findings are your output; the respondent
+  records and fixes them.
+- This is a WHOLE-CODEBASE audit, not a diff review. {AREA_SCOPE} List the source
+  with `git ls-files` and read the real code. There is NO "pre-existing"
+  exclusion — every real problem is in scope and blocks. Do not hunt for "what
+  changed"; review the code as it stands.
+- Hunt ONLY for problems in your specialty: {SPECIALTY}. Ignore every other kind
+  of issue — a different specialist owns it. Do not report findings outside your
+  specialty.
+- Be rigorous and concrete. EVERY finding must cite `file:line` and a checkable
+  reason. A finding you cannot ground in specific code is not a finding — drop it.
+- Do NOT inflate severity. Most issues are not blockers. Style preferences are
+  nits and never block; report at most ~5, then "+N similar".
+- Do NOT read anything under `reviews/` or `brainstorms/` — those hold the
+  orchestration records and would bias you. Stay inside the project directory.
+- You run non-interactively. If a finding hinges on a decision or fact only the
+  user has, put it under `## QUESTIONS FOR USER`.
+- Write your entire response in English (this is an inter-agent exchange).
+
+# Your specialty
+
+{SPECIALTY_DIMENSIONS}
+
+# Severity
+
+- blocker  — would break production or is a security hole.
+- important — a real bug, missing case, or convention violation worth fixing.
+- nit      — style/preference. At most ~5, then "+N similar". Never blocks.
+
+# Your task
+
+Audit the codebase (within your area, if one is assigned) for problems in your
+specialty only. For each, give file:line and checkable evidence. Acknowledge what
+is solid in your area; do not manufacture issues to look thorough.
+
+## Summary
+2-4 sentences: the state of the code in your specialty and the headline issues.
+
+## Findings
+One concise line per finding (id, severity, file:line, the problem). Prefix every
+id with {ID_PREFIX} (e.g. {ID_PREFIX}1, {ID_PREFIX}2) so it never collides with
+another specialist's findings.
+
+## Findings ledger
+Include exactly one fenced JSON block:
+
+```json
+{
+  "findings": [
+    {
+      "id": "{ID_PREFIX}1",
+      "severity": "blocker|important|nit",
+      "dimension": "correctness|edge-cases|security|conventions|simplicity|tests|architecture|performance|prod-readiness|docs",
+      "file": "path/to/file",
+      "line": "42 or 40-48",
+      "claim": "What is wrong, specifically.",
+      "evidence": "Why it is a problem — concrete and checkable.",
+      "fix_suggestion": "What to do about it.",
+      "status": "open"
+    }
+  ],
+  "verdict": "CHANGES_REQUESTED|CLEAN"
+}
+```
+
+`verdict: "CLEAN"` only if you found no blocker or important finding in your
+specialty. Otherwise `CHANGES_REQUESTED`.
+
+## QUESTIONS FOR USER
+Only if a decision or fact only the user has blocks a finding. Omit otherwise.
+```
+
+---
+
+## Judge specialist — re-review (full-codebase re-sweep, resumed session)
+
+Sent to each specialist's **resumed** session after you fixed/rebutted. Unlike
+diff-mode re-review, this IS a full re-sweep of the specialist's slice — it both
+re-checks prior findings and looks for new ones.
+
+```
+READ-ONLY: do not modify, create, or delete files. Do not read `reviews/` or
+`brainstorms/`. Re-list and re-read the current code (`git ls-files`,
+`git status`) — my fixes are in the working tree. Respond in English. Stay within
+your specialty ({SPECIALTY}) and your area, if one was assigned.
+
+I have addressed findings. Re-sweep your slice of the codebase now.
+
+For each finding you raised before:
+- If the current code resolves it → set `status: "resolved"` and name what fixed
+  it in `evidence` (the concrete change you can see).
+- If it still stands → keep it `open` and say what is still wrong.
+- Where I pushed back, here is my reasoning — weigh it on the evidence, not the
+  tone:
+
+{RESPONDENT_REBUTTALS}
+
+If a rebuttal holds up against the code, set that finding `status: "rebutted"`. If
+it does not, keep it `open` and explain why the code still has the problem.
+
+Then re-scan your area for any NEW real problem in your specialty you can ground
+in `file:line` — this is a genuine full re-sweep, so look again; new
+blocker/important findings get fresh ids with your prefix ({ID_PREFIX}). Keep
+nits capped (~5).
+
+{USER_ANSWERS_SECTION}
+
+Re-emit your full findings ledger (one fenced JSON block, same schema as before,
+every finding with its current `status`), then:
+
+## DECISION
+Exactly one of:
+  CHANGES_REQUESTED — followed by one line naming the open blocker/important ids.
+  CLEAN — followed by one line: no blocker or important finding remains in your specialty.
+```
+
+---
+
 ## `{SCOPE}` — how to describe what is under review
 
 Default (uncommitted changes):
@@ -319,6 +452,13 @@ The change under review is commit {SHA}. Run `git show {SHA}` to see it. Review
 only what this commit introduces.
 ```
 
+Whole codebase (full-codebase mode — fills the specialist templates' `{AREA_SCOPE}`,
+not the round-1 `{SCOPE}`). Empty when the specialist audits the whole tree:
+
+```
+Limit your audit to these directories: {DIRS}.
+```
+
 ---
 
 ## `{RESPONDENT_REBUTTALS}` and `{USER_ANSWERS_SECTION}`
@@ -346,6 +486,22 @@ The user answered questions raised earlier. Treat these as authoritative:
 Otherwise leave it empty. The prompt is in English, so translate the user's
 questions and answers into English in `{QUESTIONS_AND_ANSWERS}` before pasting
 them — keep the meaning exact.
+
+---
+
+## Full-codebase specialist placeholders
+
+For the *Judge specialist* templates (full-codebase mode):
+
+- `{SPECIALTY}` — a short label of the one problem class this specialist hunts,
+  e.g. "security" or "correctness & error handling".
+- `{SPECIALTY_DIMENSIONS}` — the 1-3 dimension descriptions this specialist owns
+  (copy the relevant lines from the round-1 dimension catalogue), plus a line
+  telling it to ignore everything else.
+- `{ID_PREFIX}` — a unique short id prefix so merged ids never collide:
+  `COR-`, `SEC-`, `DES-`, `PERF-`, `TST-` (ids become `SEC-1`, `SEC-2`, …).
+- `{AREA_SCOPE}` — empty (whole tree) or "Limit your audit to these directories:
+  {DIRS}." when the specialist is chunked by area.
 
 ---
 

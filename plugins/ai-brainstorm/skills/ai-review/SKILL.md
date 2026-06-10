@@ -25,6 +25,12 @@ description: >-
   not the detection rigor. Trigger lite mode when the user wants a *quick /
   lightweight / pre-commit* check — e.g. "облегчённое ревью", "быстрое ревью перед коммитом",
   "quick review before I commit", "lite cross-model check", "погоняй судью по-быстрому".
+  There is also a **full-codebase mode** that audits the ENTIRE existing codebase
+  (not a diff) by fanning out several cross-model judge specialists, each hunting
+  one class of problem across the whole tree, and re-sweeping every round. Use it
+  when the user wants the whole project reviewed or audited rather than just a
+  change — e.g. "review the whole codebase", "audit the entire project", "ревью
+  всего кода", "проверь весь проект целиком".
 ---
 
 # AI Review
@@ -52,7 +58,7 @@ Why a different model judges: a second model from another family catches what
 your own model's blind spots miss. The judge starts cold (clean session, no
 memory of your reasoning) so it reviews the *code*, not your rationalizations.
 
-**Two modes.** Default is the **full** review documented below — it writes a
+**Modes.** Default is the **full** review documented below — it writes a
 `reviews/<slug>/` record, supports PR/branch scope, runs a JSON findings ledger,
 and is built for a thorough, resumable, auditable sign-off. The **lite mode**
 (see "Lite mode" near the end) is the opposite trade-off on *ceremony*, not on
@@ -64,6 +70,13 @@ gives up are the on-disk record, the JSON ledger, and PR/branch scope. When the
 user asks for a *quick / lightweight / pre-commit* check, use lite mode; when
 they want an auditable record, a resumable run, or a PR/branch review, use the
 full flow.
+
+A third variant, **full-codebase mode** (see "Full-codebase mode" near the end),
+keeps the full flow's ceremony but flips the *scope*: instead of a diff it
+reviews the **entire existing codebase**, fanning out several cross-model judge
+*specialists* — each hunting one class of problem across the whole tree — and
+re-sweeping every round. Use it when the user wants the whole project audited,
+not just a change.
 
 ## Roles
 
@@ -113,6 +126,11 @@ Confirm the scope in one sentence before starting. Three shapes:
   so the judge's `base...HEAD` diff picks them up each round.
 - **Explicit paths or a single commit:** `git diff HEAD -- <paths>`, or
   `git show <sha>` for one commit.
+- **Whole codebase (full-codebase mode):** not a diff at all — the entire
+  existing source tree is under review, and there is no introduced-vs-pre-existing
+  split (every real problem is in scope and blocks). This shape fans the review
+  out across cross-model judge *specialists*; see "Full-codebase mode" for the
+  full procedure, the scope command, and its `state.json` shape.
 
 In every shape the judge raises findings on the *introduced* lines; anything
 pre-existing it notices is marked `pre_existing: true` and does **not** block. The
@@ -388,7 +406,10 @@ structured JSON. The judge is just a single agent in the config.
   ]
 }
 ```
-- Always exactly **one agent** (the judge).
+- Exactly **one agent** (the judge) in diff and lite modes. **Full-codebase mode
+  is the exception:** it puts **N specialist judges** in the `agents` array — the
+  runner runs them in parallel (`max_workers = len(agents)`) and resumes each by
+  its own `session_id`. See "Full-codebase mode".
 - `session_id`: `null` for round 1 (fresh session); the id returned by the
   previous round for every re-review (resumes the judge's session).
 - `model`: `null` uses the CLI's default model.
@@ -527,6 +548,21 @@ The config and `run_round.py` call are identical to the full flow (one judge
 agent, resume by `session_id`), just with the lite prompt, the shared
 `reviews/.lite/.raw` dir, and `max_rounds = 2`.
 
+## Full-codebase mode (audit the whole project, not a diff)
+
+When the user wants the **entire existing codebase** audited rather than a change
+("audit the whole project", "ревью всего кода"), use **full-codebase mode**. It
+keeps this flow's ceremony but flips the scope: instead of a diff it reviews all
+existing code (nothing is "pre-existing"; every real problem blocks), and it
+fans the review out across **several cross-model judge specialists run in
+parallel** — each hunting one class of problem across the tree — re-sweeping
+every round. You (respondent) still fix sequentially in the one working tree.
+
+**The full procedure, the `specialists` `state.json` shape, the default roster,
+area-chunking, and the cost multiplier live in
+`references/full-codebase-mode.md` — read it before running this mode.** The
+judge prompts are the *Judge specialist* templates in `references/review-prompts.md`.
+
 ## Notes and edge cases
 
 - **No changes to review.** If the scope's diff is empty (`git diff HEAD` + untracked
@@ -547,6 +583,10 @@ agent, resume by `session_id`), just with the lite prompt, the shared
   up where it stopped.
 - **Cost.** Each judge round is real CLI usage; mention it if the user is
   cost-sensitive, and offer to set the judge to a cheaper/faster model.
+- **Full-codebase cost multiplies.** Full-codebase mode spends roughly
+  N_specialists × N_areas × rounds CLI runs — far more than a diff review. Quote
+  the rough multiplier up front, start with the lean default roster, and let the
+  user cap specialists, areas, or `max_rounds` before launching.
 - **Reviewing vs committing.** This skill reviews a *dirty* working tree on
   purpose — that is the whole point, unlike `ai-brainstorm` which wants a clean
   tree. Do not commit on the user's behalf unless asked.
