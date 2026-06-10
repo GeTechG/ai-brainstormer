@@ -200,6 +200,18 @@ Tell the user what is happening between phases — a round takes minutes.
    Cost tip to offer if the user is cost-sensitive: judges can be set to a
    cheaper/faster model.
 
+   **Models (per agent).** Each agent's `model` field selects its model; `null`
+   (the default) means that CLI's own default model — whatever the user has
+   configured, with no override. If the user names a model in their request, set
+   the relevant agent's `model` to that string verbatim — the runner forwards it
+   as `claude --model <m>` / `codex -m <m>`. The user may set it globally ("run
+   the brainstorm on opus"), per role ("lead on opus, judge on gpt-5-codex"), or
+   per named agent. Use each CLI's own model names/aliases: for a `claude` agent,
+   an alias like `opus`/`sonnet`/`haiku` or a full id like `claude-opus-4-8`; for
+   a `codex` agent, a Codex model name like `gpt-5-codex`. Leave `model: null`
+   for any agent the user did not single out — do not invent a model the user did
+   not ask for.
+
 4. **Preflight the CLIs:**
    ```bash
    python3 <skill-dir>/scripts/run_round.py --check

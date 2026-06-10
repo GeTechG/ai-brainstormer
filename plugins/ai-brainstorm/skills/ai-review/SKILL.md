@@ -218,6 +218,14 @@ Tell the user what is happening between phases — a judge round takes minutes.
 2. **Pick the judge.** Default `codex` (different family). Offer `claude` (fresh
    clean session) if the user prefers, or if `codex` is unavailable. The judge
    must be a different *session* than yours regardless; prefer a different *model*.
+   **Judge model.** The `judge.model` field selects its model; `null` (the
+   default) means that CLI's own default — whatever the user has configured, with
+   no override. If the user names a model in their request ("review with codex on
+   gpt-5-codex", "judge with haiku"), set `judge.model` to that string verbatim —
+   the runner forwards it as `claude --model <m>` / `codex -m <m>`. Use the CLI's
+   own model names/aliases (claude: `opus`/`sonnet`/`haiku` or a full id like
+   `claude-haiku-4-5-20251001`; codex: a model name like `gpt-5-codex`). Leave
+   `model: null` to use the default.
 3. **Confirm dimensions and threshold** only if the user wants to deviate from the
    defaults above.
 4. **Preflight the judge CLI:**
