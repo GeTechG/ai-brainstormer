@@ -28,15 +28,19 @@ ROUND CONFIG JSON
   "timeout_seconds": 1800,                 # per-agent wall-clock cap
   "round": 1,
   "agents": [
-    {"name": "claude", "cli": "claude", "model": null,
+    {"name": "claude", "cli": "claude", "model": null, "effort": null,
      "session_id": null, "prompt_file": "/abs/prompt-claude.md"},
-    {"name": "codex",  "cli": "codex",  "model": null,
+    {"name": "codex",  "cli": "codex",  "model": null, "effort": null,
      "session_id": null, "prompt_file": "/abs/prompt-codex.md"}
   ]
 }
   - session_id null/absent  -> fresh session (round 1)
   - session_id set          -> resume that session (round 2+)
   - model null/absent       -> the CLI's default model
+  - effort null/absent      -> the CLI's default reasoning effort; else the
+                               reasoning-effort level (claude: low|medium|high|
+                               xhigh|max via --effort; codex: minimal|low|medium|
+                               high via -c model_reasoning_effort=...)
 
 RESULT JSON (printed to stdout)
 {
@@ -429,6 +433,9 @@ def run_claude(agent, project_dir, prompt_text, timeout):
         cmd += ["--resume", agent["session_id"]]
     if agent.get("model"):
         cmd += ["--model", agent["model"]]
+    if agent.get("effort"):
+        # claude reasoning effort: low|medium|high|xhigh|max
+        cmd += ["--effort", agent["effort"]]
 
     code, out, err, secs, timed_out = _run(cmd, project_dir, prompt_text, timeout)
 
@@ -490,6 +497,9 @@ def run_codex(agent, project_dir, prompt_text, timeout, last_msg_file):
         cmd = ["codex", "exec"] + common + ["-C", project_dir]
     if agent.get("model"):
         cmd += ["-m", agent["model"]]
+    if agent.get("effort"):
+        # codex reasoning effort: minimal|low|medium|high (none for gpt-5.5)
+        cmd += ["-c", "model_reasoning_effort=%s" % agent["effort"]]
 
     # clear any stale -o file from a previous attempt
     try:

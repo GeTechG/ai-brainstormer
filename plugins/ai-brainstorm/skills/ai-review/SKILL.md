@@ -226,6 +226,13 @@ Tell the user what is happening between phases — a judge round takes minutes.
    own model names/aliases (claude: `opus`/`sonnet`/`haiku` or a full id like
    `claude-haiku-4-5-20251001`; codex: a model name like `gpt-5-codex`). Leave
    `model: null` to use the default.
+   **Judge effort.** The `judge.effort` field selects the judge's reasoning-effort
+   level; `null` (the default) means the CLI's own default. If the user wants the
+   judge to think harder or cheaper ("review with high effort", "quick low-effort
+   pass"), set `judge.effort` — the runner forwards it as `claude --effort <e>` /
+   `codex -c model_reasoning_effort=<e>`. Levels are per-CLI (claude:
+   `low|medium|high|xhigh|max`; codex: `minimal|low|medium|high`). Leave
+   `effort: null` to use the default.
 3. **Confirm dimensions and threshold** only if the user wants to deviate from the
    defaults above.
 4. **Preflight the judge CLI:**
@@ -255,7 +262,7 @@ Tell the user what is happening between phases — a judge round takes minutes.
   "stop_threshold": "important",
   "dimensions": ["correctness","edge-cases","security","conventions","simplicity",
                  "tests","architecture","performance","prod-readiness","docs"],
-  "judge": {"name": "codex", "cli": "codex", "model": null, "session_id": null}
+  "judge": {"name": "codex", "cli": "codex", "model": null, "effort": null, "session_id": null}
 }
 ```
 
@@ -372,7 +379,7 @@ structured JSON. The judge is just a single agent in the config.
   "timeout_seconds": 1800,
   "round": 1,
   "agents": [
-    {"name": "codex", "cli": "codex", "model": null,
+    {"name": "codex", "cli": "codex", "model": null, "effort": null,
      "session_id": null,
      "prompt_file": "/abs/.raw/round-1-judge.prompt.md"}
   ]
@@ -382,6 +389,8 @@ structured JSON. The judge is just a single agent in the config.
 - `session_id`: `null` for round 1 (fresh session); the id returned by the
   previous round for every re-review (resumes the judge's session).
 - `model`: `null` uses the CLI's default model.
+- `effort`: `null` uses the CLI's default reasoning effort; else a per-CLI level
+  (claude: `low|medium|high|xhigh|max`; codex: `minimal|low|medium|high`).
 
 **Run it:**
 ```bash
@@ -470,7 +479,8 @@ paperwork removed.
 - **Use a cheap/fast judge model.** Set `model` in the config to a small model:
   for a `claude` judge, `"model": "claude-haiku-4-5-20251001"`; for `codex`, pass
   a faster model via `model`. Default codex (`model: null`) is fine too — it
-  reports no dollar cost, just tokens.
+  reports no dollar cost, just tokens. You can also lower `effort` (e.g.
+  `"effort": "low"`) to cut reasoning tokens further.
 - **Skip the paid claude probe** in preflight: `run_round.py --check --no-probe-claude`
   (or skip preflight entirely if a judge round already ran this session).
 - **Keep the prompt minimal** — the lite templates in `references/review-prompts.md`

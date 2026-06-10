@@ -212,6 +212,16 @@ Tell the user what is happening between phases — a round takes minutes.
    for any agent the user did not single out — do not invent a model the user did
    not ask for.
 
+   **Reasoning effort (per agent).** Each agent's `effort` field selects its
+   reasoning-effort level; `null` (the default) means the CLI's own default
+   effort — no override. If the user asks for more/less thinking (globally, per
+   role, or per agent), set the relevant agent's `effort` and the runner forwards
+   it as `claude --effort <e>` / `codex -c model_reasoning_effort=<e>`. Use each
+   CLI's own levels: for a `claude` agent, `low|medium|high|xhigh|max`; for a
+   `codex` agent, `minimal|low|medium|high`. Leave `effort: null` for any agent
+   the user did not single out. A common pairing: raise the lead's effort for a
+   hard problem, or lower a judge's effort to save cost.
+
 4. **Preflight the CLIs:**
    ```bash
    python3 <skill-dir>/scripts/run_round.py --check
@@ -243,8 +253,8 @@ Tell the user what is happening between phases — a round takes minutes.
   "delta_mode": "section-id",
   "last_seen_round": {},
   "agents": [
-    {"name": "claude", "cli": "claude", "role": "lead",  "model": null, "session_id": null},
-    {"name": "codex",  "cli": "codex",  "role": "judge", "model": null, "session_id": null}
+    {"name": "claude", "cli": "claude", "role": "lead",  "model": null, "effort": null, "session_id": null},
+    {"name": "codex",  "cli": "codex",  "role": "judge", "model": null, "effort": null, "session_id": null}
   ]
 }
 ```
@@ -486,7 +496,7 @@ write; the script just runs whatever agents the config lists.
   "timeout_seconds": 1800,
   "round": 2,
   "agents": [
-    {"name": "codex", "cli": "codex", "model": null,
+    {"name": "codex", "cli": "codex", "model": null, "effort": null,
      "session_id": "<id from round 1>",
      "prompt_file": "/abs/.raw/round-2-codex.prompt.md"}
   ]
@@ -497,6 +507,8 @@ write; the script just runs whatever agents the config lists.
 - `session_id`: `null` for round 1 (fresh session); the id returned by the
   previous round for every later turn (resumes that session).
 - `model`: `null` uses the CLI's default model.
+- `effort`: `null` uses the CLI's default reasoning effort; else a per-CLI level
+  (claude: `low|medium|high|xhigh|max`; codex: `minimal|low|medium|high`).
 - `timeout_seconds`: per-agent wall-clock cap; 1800 (30 min) is a safe default.
   Agents in a round run in parallel, so wall time is the slowest agent.
 
