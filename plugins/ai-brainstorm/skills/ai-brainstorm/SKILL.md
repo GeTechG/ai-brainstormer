@@ -218,9 +218,14 @@ Tell the user what is happening between phases — a round takes minutes.
    role, or per agent), set the relevant agent's `effort` and the runner forwards
    it as `claude --effort <e>` / `codex -c model_reasoning_effort=<e>`. Use each
    CLI's own levels: for a `claude` agent, `low|medium|high|xhigh|max`; for a
-   `codex` agent, `minimal|low|medium|high`. Leave `effort: null` for any agent
-   the user did not single out. A common pairing: raise the lead's effort for a
-   hard problem, or lower a judge's effort to save cost.
+   `codex` agent, `minimal|low|medium|high`.
+
+   **Do not set `effort` unless the user explicitly asked for it.** When unset,
+   each CLI runs at its own configured default, which is usually the
+   best-balanced choice — e.g. `codex` at its default (`medium`) tends to give
+   the best results, and lowering it can hurt the review. Only override when the
+   user asks ("think harder", "high effort", "quick low-effort pass"); otherwise
+   leave `effort: null` for every agent.
 
 4. **Preflight the CLIs:**
    ```bash

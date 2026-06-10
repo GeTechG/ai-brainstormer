@@ -231,8 +231,11 @@ Tell the user what is happening between phases — a judge round takes minutes.
    judge to think harder or cheaper ("review with high effort", "quick low-effort
    pass"), set `judge.effort` — the runner forwards it as `claude --effort <e>` /
    `codex -c model_reasoning_effort=<e>`. Levels are per-CLI (claude:
-   `low|medium|high|xhigh|max`; codex: `minimal|low|medium|high`). Leave
-   `effort: null` to use the default.
+   `low|medium|high|xhigh|max`; codex: `minimal|low|medium|high`). **Do not set
+   `effort` unless the user explicitly asked** — when unset the judge runs at the
+   CLI's own default, usually the best-balanced choice (e.g. `codex` at its
+   default `medium` tends to give the best results; lowering it can weaken the
+   review). Leave `effort: null` otherwise.
 3. **Confirm dimensions and threshold** only if the user wants to deviate from the
    defaults above.
 4. **Preflight the judge CLI:**
@@ -479,8 +482,9 @@ paperwork removed.
 - **Use a cheap/fast judge model.** Set `model` in the config to a small model:
   for a `claude` judge, `"model": "claude-haiku-4-5-20251001"`; for `codex`, pass
   a faster model via `model`. Default codex (`model: null`) is fine too — it
-  reports no dollar cost, just tokens. You can also lower `effort` (e.g.
-  `"effort": "low"`) to cut reasoning tokens further.
+  reports no dollar cost, just tokens. Leave `effort` unset (the CLI default,
+  e.g. codex `medium`, reviews best); only lower it if the user explicitly wants
+  the cheapest possible pass and accepts a weaker review.
 - **Skip the paid claude probe** in preflight: `run_round.py --check --no-probe-claude`
   (or skip preflight entirely if a judge round already ran this session).
 - **Keep the prompt minimal** — the lite templates in `references/review-prompts.md`
