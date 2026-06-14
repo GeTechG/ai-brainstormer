@@ -2,8 +2,8 @@
 """
 run_round.py - run one round of an AI brainstorm.
 
-Invokes each participating CLI agent (claude, codex, ...) in PARALLEL, in
-read-only mode, capturing each agent's verdict text and its CLI session id.
+Invokes each participating CLI agent (claude, codex, ...) in PARALLEL,
+capturing each agent's verdict text and its CLI session id.
 This is the mechanical core of the ai-brainstorm skill: the orchestrator
 (Claude running the skill) decides *what* prompt each agent gets and *whether*
 to run another round; this script just runs the calls reliably.
@@ -474,20 +474,20 @@ def run_claude(agent, project_dir, prompt_text, timeout):
 # --------------------------------------------------------------------------
 
 def run_codex(agent, project_dir, prompt_text, timeout, last_msg_file):
-    """Run the Codex CLI headless, in read-only sandbox.
+    """Run the Codex CLI headless, inheriting the user's global permissions.
 
-    `--sandbox read-only` is an OS-level sandbox: the agent physically cannot
-    write files. `-o` mirrors the final answer to a file. The session id is the
-    `thread_id` from the first `thread.started` JSONL event - feed it back to
-    `codex exec resume` for later rounds.
+    The runner deliberately does not override `sandbox_mode`, `approval_policy`,
+    or permission profiles. `~/.codex/config.toml` is the single source of
+    truth, so global MCP approvals and network access keep working. `-o`
+    mirrors the final answer to a file. The session id is the `thread_id` from
+    the first `thread.started` JSONL event - feed it back to `codex exec resume`
+    for later rounds.
 
     Note: `codex exec` can exit 0 even on failure, so success is judged by
     whether an actual answer came back, not by the exit code.
     """
     common = [
         "--json", "--skip-git-repo-check",
-        "-c", "sandbox_mode=read-only",
-        "-c", "approval_policy=never",
         "-o", last_msg_file,
     ]
     if agent.get("session_id"):

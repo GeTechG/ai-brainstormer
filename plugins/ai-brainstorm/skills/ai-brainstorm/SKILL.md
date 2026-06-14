@@ -95,19 +95,20 @@ prior reasoning. You inject only what the flow says it should see this turn.
 These are what make the brainstorm trustworthy.
 
 1. **Only you write curated files inside `brainstorms/`.** Agents are instructed
-   not to write there: `codex` is OS-sandboxed read-only, while `claude` relies
-   on disabled editing tools plus prompt instructions (`Bash` stays enabled, so
-   this is not an OS guarantee). Every curated file is written by you.
+   not to write there. `codex` inherits the user's global Codex permissions;
+   `claude` relies on disabled editing tools plus prompt instructions (`Bash`
+   stays enabled, so this is not an OS guarantee). Every curated file is
+   written by you.
 2. **Agents must not read `brainstorms/`,** and must stay inside the project
    directory. Each agent's prompt enforces this. It keeps round 1 genuinely
    independent and stops agents from discovering the orchestration machinery.
-3. **Agents must not modify the project.** `codex` runs in an OS-level read-only
-   sandbox — it physically cannot write. The `claude` CLI has no such sandbox: it
-   runs with its file-editing tools (`Write`/`Edit`/`MultiEdit`/`NotebookEdit`)
-   disabled, but `Bash` stays enabled for read-only investigation — so claude's
-   read-only status is enforced **by instruction, not by sandbox**. Run
-   brainstorms on a **clean git working tree** so any stray change is
-   recoverable. Verdicts are captured from output — agents never need to write a file.
+3. **Agents must not modify the project.** `codex` inherits the user's global
+   Codex permissions so MCP and network settings have one source of truth; the
+   prompt still forbids writes. The `claude` CLI runs with its file-editing tools
+   (`Write`/`Edit`/`MultiEdit`/`NotebookEdit`) disabled, but `Bash` stays enabled
+   for read-only investigation. For both agents, run brainstorms on a **clean git
+   working tree** and treat the runner's post-run git guard as the enforcement
+   backstop. Verdicts are captured from output — agents never need to write a file.
 4. **Information flow is one-directional and minimal.** Judges see the lead's
    answer; they never see each other, nor each other's critiques. The lead sees
    the judges' *critiques, including the constructive `## Your proposed solution`
