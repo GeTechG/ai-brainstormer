@@ -207,7 +207,10 @@ language: relay the judge's questions in the user's language, and write the
 user-facing curated files — `review.md`, `review-summary.md`, and the chat
 summaries — in the user's language. You are the translation boundary; translate
 user answers into English before feeding them into the next judge prompt. This
-directory is runtime output (gitignored) — temporary, for logging and resume.
+directory is runtime output (gitignored), but **persists** — it holds the
+deliverable plus the logs and resume state, and the skill **never auto-deletes a
+full review**. It stays on disk until the *user* removes it. (Only **lite mode**
+auto-cleans its own throwaway `reviews/.lite` dir; see "Lite mode".)
 
 ## The turn structure
 
@@ -590,3 +593,9 @@ judge prompts are the *Judge specialist* templates in `references/review-prompts
 - **Reviewing vs committing.** This skill reviews a *dirty* working tree on
   purpose — that is the whole point, unlike `ai-brainstorm` which wants a clean
   tree. Do not commit on the user's behalf unless asked.
+- **Cleanup policy — do not delete full reviews.** Only **lite mode** auto-deletes
+  anything, and only its own throwaway `reviews/.lite` dir. A **full review's**
+  `reviews/<slug>/` directory (and `full-codebase` runs) is **kept** — it holds
+  the `review-summary.md` deliverable and the resume state — and is removed **only
+  when the user asks**. Never `rm` a `reviews/<slug>/` dir on your own, not at
+  finalize and not when starting a new review.
