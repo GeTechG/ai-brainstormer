@@ -1,7 +1,7 @@
 # Full-codebase mode (audit the whole project, not a diff)
 
 Read this when the user wants the **entire existing codebase** reviewed, not a
-change — "audit the whole project", "review all the code", "ревью всего кода".
+change — "audit the whole project", "review all the code".
 The judge prompts for this mode are the *Judge specialist* templates in
 `review-prompts.md`.
 

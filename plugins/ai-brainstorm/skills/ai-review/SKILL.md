@@ -23,14 +23,14 @@ description: >-
   review — it scrutinizes the same dimensions and flags the same issues at the
   same severities; what it strips is the ceremony (files, JSON ledger, PR scope),
   not the detection rigor. Trigger lite mode when the user wants a *quick /
-  lightweight / pre-commit* check — e.g. "облегчённое ревью", "быстрое ревью перед коммитом",
-  "quick review before I commit", "lite cross-model check", "погоняй судью по-быстрому".
+  lightweight / pre-commit* check — e.g. "lightweight review", "quick review
+  before I commit", "lite cross-model check", "give the judge a fast pass".
   There is also a **full-codebase mode** that audits the ENTIRE existing codebase
   (not a diff) by fanning out several cross-model judge specialists, each hunting
   one class of problem across the whole tree, and re-sweeping every round. Use it
   when the user wants the whole project reviewed or audited rather than just a
-  change — e.g. "review the whole codebase", "audit the entire project", "ревью
-  всего кода", "проверь весь проект целиком". Finally there is a **dual diff-only
+  change — e.g. "review the whole codebase", "audit the entire project", "review
+  all the code", "check the whole project end to end". Finally there is a **dual diff-only
   mode** for critical slices (schemas, migrations, public API contracts, wire
   formats, fork/vendored patches, security-sensitive paths): TWO independent
   reviewers each receive only the frozen diff in a fresh clean session — no
@@ -38,8 +38,8 @@ description: >-
   their verdicts is itself a signal about the change. Trigger it when the user
   wants two independent reviewers, a diff-only or clean-context review, or flags
   the change as critical — e.g. "two independent reviewers on this diff",
-  "clean-context review", "два независимых ревьюера", "diff-only ревью", "это
-  критичный слайс — прогони двух судей по чистому контексту".
+  "clean-context review", "diff-only review", "this is a critical slice — run
+  two judges with clean context".
 ---
 
 # AI Review
@@ -578,7 +578,7 @@ agent, resume by `session_id`), just with the lite prompt, the shared
 ## Full-codebase mode (audit the whole project, not a diff)
 
 When the user wants the **entire existing codebase** audited rather than a change
-("audit the whole project", "ревью всего кода"), use **full-codebase mode**. It
+("audit the whole project", "review all the code"), use **full-codebase mode**. It
 keeps this flow's ceremony but flips the scope: instead of a diff it reviews all
 existing code (nothing is "pre-existing"; every real problem blocks), and it
 fans the review out across **several cross-model judge specialists run in
