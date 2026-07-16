@@ -30,7 +30,16 @@ description: >-
   one class of problem across the whole tree, and re-sweeping every round. Use it
   when the user wants the whole project reviewed or audited rather than just a
   change — e.g. "review the whole codebase", "audit the entire project", "ревью
-  всего кода", "проверь весь проект целиком".
+  всего кода", "проверь весь проект целиком". Finally there is a **dual diff-only
+  mode** for critical slices (schemas, migrations, public API contracts, wire
+  formats, fork/vendored patches, security-sensitive paths): TWO independent
+  reviewers each receive only the frozen diff in a fresh clean session — no
+  author context, no rationalizations, never resumed — and divergence between
+  their verdicts is itself a signal about the change. Trigger it when the user
+  wants two independent reviewers, a diff-only or clean-context review, or flags
+  the change as critical — e.g. "two independent reviewers on this diff",
+  "clean-context review", "два независимых ревьюера", "diff-only ревью", "это
+  критичный слайс — прогони двух судей по чистому контексту".
 ---
 
 # AI Review
@@ -77,6 +86,16 @@ reviews the **entire existing codebase**, fanning out several cross-model judge
 *specialists* — each hunting one class of problem across the whole tree — and
 re-sweeping every round. Use it when the user wants the whole project audited,
 not just a change.
+
+A fourth variant, **dual diff-only mode** (see "Dual diff-only mode" near the
+end), flips the judge's *context* instead: for **critical slices** — schemas and
+migrations, public API contracts, wire formats, patches to fork/vendored code —
+**two independent reviewers** each receive **only the frozen diff in a fresh
+clean session**, with no author context and no rationalizations, and are never
+resumed. Diff-only reviewers in clean context have caught real use-after-free
+and logic bugs that compiled and looked plausible, and **divergence between the
+two verdicts is itself a signal**. The standard live-repo single-session judge
+stays the right default for lite and ordinary diffs.
 
 ## Roles
 
@@ -135,7 +154,9 @@ Confirm the scope in one sentence before starting. Three shapes:
 In every shape the judge raises findings on the *introduced* lines; anything
 pre-existing it notices is marked `pre_existing: true` and does **not** block. The
 exact scope (mode, base, branch/paths) is recorded in `state.json` so re-review
-rounds and resume use the identical diff command.
+rounds and resume use the identical diff command. (**Dual diff-only mode**
+reuses these same diff shapes — it changes the *delivery*, freezing the diff and
+pasting it into two clean-context reviewers' prompts; see "Dual diff-only mode".)
 
 ## Review dimensions
 
@@ -410,11 +431,14 @@ structured JSON. The judge is just a single agent in the config.
 }
 ```
 - Exactly **one agent** (the judge) in diff and lite modes. **Full-codebase mode
-  is the exception:** it puts **N specialist judges** in the `agents` array — the
+  is an exception:** it puts **N specialist judges** in the `agents` array — the
   runner runs them in parallel (`max_workers = len(agents)`) and resumes each by
-  its own `session_id`. See "Full-codebase mode".
+  its own `session_id`. See "Full-codebase mode". **Dual diff-only mode** puts
+  its **two reviewers** in the array, both with `session_id: null` **every
+  round** — its sessions are never resumed.
 - `session_id`: `null` for round 1 (fresh session); the id returned by the
-  previous round for every re-review (resumes the judge's session).
+  previous round for every re-review (resumes the judge's session). Dual
+  diff-only mode keeps it `null` always.
 - `model`: `null` uses the CLI's default model.
 - `effort`: `null` uses the CLI's default reasoning effort; else a per-CLI level
   (claude: `low|medium|high|xhigh|max`; codex: `minimal|low|medium|high`).
@@ -566,6 +590,25 @@ area-chunking, and the cost multiplier live in
 `references/full-codebase-mode.md` — read it before running this mode.** The
 judge prompts are the *Judge specialist* templates in `references/review-prompts.md`.
 
+## Dual diff-only mode (clean context for critical slices)
+
+When the change touches a **critical slice** — schemas/migrations, public API
+contracts, wire formats, fork/vendored patches, security-sensitive paths — or
+the user asks for two independent reviewers or a clean-context review, use
+**dual diff-only mode**. It keeps the full flow's ceremony but removes the
+author's channel to the judge: each round you freeze the scope's diff and give
+it verbatim to **two independent reviewers** (prefer different models:
+`codex` + `claude`), each a **fresh clean session** that receives *only the
+diff* — no scope narrative, no rationalizations, no rebuttals — and is **never
+resumed**. Consensus findings are highest-confidence; **verdict divergence is
+itself a signal** that a clean reader cannot establish the change's safety from
+the diff — actionable on a critical surface even when the code is right.
+
+**The full procedure, the `reviewers` `state.json` shape, the
+agreement/divergence handling, and the no-resume rebuttal semantics live in
+`references/dual-diff-mode.md` — read it before running this mode.** The judge
+prompt is the *Judge diff-only* template in `references/review-prompts.md`.
+
 ## Notes and edge cases
 
 - **No changes to review.** If the scope's diff is empty (`git diff HEAD` + untracked
@@ -590,6 +633,11 @@ judge prompts are the *Judge specialist* templates in `references/review-prompts
   N_specialists × N_areas × rounds CLI runs — far more than a diff review. Quote
   the rough multiplier up front, start with the lean default roster, and let the
   user cap specialists, areas, or `max_rounds` before launching.
+- **Dual diff-only costs ~2× per round and never resumes.** Two reviewers, each
+  round a cold session that re-reads from scratch — no resume discount. Reserve
+  it for critical slices; quote the multiplier up front. And report verdict
+  divergence to the user as soon as it appears — it is a finding about the
+  change, not noise to be tie-broken silently.
 - **Reviewing vs committing.** This skill reviews a *dirty* working tree on
   purpose — that is the whole point, unlike `ai-brainstorm` which wants a clean
   tree. Do not commit on the user's behalf unless asked.

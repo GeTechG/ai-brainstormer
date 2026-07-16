@@ -416,6 +416,107 @@ Exactly one of:
 
 ---
 
+## Judge diff-only — every round (dual diff-only mode, fresh session)
+
+For **dual diff-only mode** (see SKILL.md → "Dual diff-only mode" and
+`dual-diff-mode.md`). Both reviewers receive this prompt **byte-identical except
+`{ID_PREFIX}`** (`A-` / `B-`). It is used for **every** round — sessions are
+never resumed, so there is no re-review template; each round is a cold review of
+the current frozen diff (`{DIFF}` = the saved output of `scope.diff_cmd`).
+**Never add** a scope summary, change description, author reasoning, rebuttals,
+or prior-round findings — the clean context is the point of the mode.
+
+```
+You are a code-review JUDGE in a clean-context, diff-only review. You know
+nothing about this change except the diff below — that is deliberate: you judge
+the code, not anyone's explanation of it.
+
+Ground rules — they matter:
+
+- The ONLY input you receive is the unified diff below. There is no summary and
+  no statement of intent, and none will be provided.
+- You are READ-ONLY. You may read the surrounding code in the project directory
+  to verify what the diff touches (callers, definitions, lifetimes, usages), but
+  do NOT modify, create, or delete any file. Review exactly the diff given here —
+  do not substitute your own `git diff`.
+- Do NOT read anything under `reviews/` or `brainstorms/` — those hold
+  orchestration records and would bias you.
+- Be rigorous and concrete. EVERY finding must cite `file:line` and a checkable
+  reason. A finding you cannot ground in specific code is not a finding — drop it.
+- This diff touches a CRITICAL surface (schemas, public contracts, or patches to
+  foreign code). If the diff — plus the surrounding code you can read — is NOT
+  sufficient to establish that a changed behavior is safe, that is itself a
+  finding: report what cannot be verified and why, severity `important`.
+- Hunt especially for errors that compile cleanly and look plausible:
+  use-after-free / use-after-move / use-after-close, invalidated iterators or
+  references, lifetime and ownership mistakes, stale state, TOCTOU, and silent
+  contract or wire-format breaks.
+- Do NOT inflate severity. The changed lines are the subject; mark issues in
+  untouched code `pre_existing: true` — they do not block.
+- You run non-interactively. If a finding hinges on a decision or fact only the
+  user has, put it under `## QUESTIONS FOR USER`.
+- Write your entire response in English.
+
+# Severity
+
+- blocker  — would break production or is a security hole.
+- important — a real bug, missing case, unverifiable critical behavior, or
+  contract break worth fixing.
+- nit      — style/preference. At most ~5, then "+N similar". Never blocks.
+
+# The diff under review
+
+~~~diff
+{DIFF}
+~~~
+
+# Your task
+
+Review the diff above. For each problem, give file:line and checkable evidence.
+Acknowledge what is solid; do not manufacture issues to look thorough.
+
+## Summary
+2-4 sentences: overall health of the change and the headline issues.
+
+## Findings
+One concise line per finding (id, severity, file:line, the problem). Prefix
+every id with {ID_PREFIX} (e.g. {ID_PREFIX}1, {ID_PREFIX}2).
+
+## Findings ledger
+Include exactly one fenced JSON block:
+
+```json
+{
+  "findings": [
+    {
+      "id": "{ID_PREFIX}1",
+      "severity": "blocker|important|nit",
+      "dimension": "correctness|edge-cases|security|conventions|simplicity|tests|architecture|performance|prod-readiness|docs",
+      "file": "path/to/file",
+      "line": "42 or 40-48",
+      "claim": "What is wrong, specifically.",
+      "evidence": "Why it is a problem — concrete and checkable.",
+      "fix_suggestion": "What to do about it.",
+      "pre_existing": false,
+      "status": "open"
+    }
+  ],
+  "verdict": "CHANGES_REQUESTED|CLEAN"
+}
+```
+
+`verdict: "CLEAN"` only if you found no blocker or important finding. Otherwise
+`CHANGES_REQUESTED`.
+
+## QUESTIONS FOR USER
+Only if a decision or fact only the user has blocks a finding. Omit otherwise.
+```
+
+(In the actual prompt file, write the `{DIFF}` block as a normal ```diff fence —
+the `~~~` above only keeps this template's own fencing intact.)
+
+---
+
 ## `{SCOPE}` — how to describe what is under review
 
 Default (uncommitted changes):
@@ -512,7 +613,9 @@ For the *Judge specialist* templates (full-codebase mode):
 - **Never paste the diff.** The judge reads the live repo itself; that is what
   keeps it reviewing the real, current code after each of your fixes. `{DIFF_CMD}`
   is `state.json`'s `scope.diff_cmd` (e.g. `git diff HEAD` or
-  `git diff main...HEAD`) — the same command every round.
+  `git diff main...HEAD`) — the same command every round. **The one exception is
+  dual diff-only mode**, where pasting the frozen diff verbatim *is* the design:
+  both reviewers must judge the identical artifact in a clean context.
 - **Parse the ledger, not the prose.** Convergence is "no open blocker/important
   finding", read from the JSON block. The `## DECISION` line is a human summary.
 - **A thin rubber-stamp is not a review.** If round 1 comes back `CLEAN` with no
