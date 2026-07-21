@@ -1,6 +1,6 @@
 # brainstormer
 
-Репозиторий-маркетплейс с плагином **`ai-brainstorm`** для Claude Code —
+Репозиторий-маркетплейс с плагином **`ai-brainstorm`** для Claude Code и Codex —
 многоагентный кросс-модельный инструментарий. В плагине **два скилла**:
 
 - **`ai-brainstorm`** — мозговой штурм. Один **ведущий** (lead) пишет ответ, один
@@ -14,11 +14,15 @@
 ## Что внутри
 
 ```
-brainstormer/                          ← маркетплейс Claude Code (корень репо)
+brainstormer/                          ← общий корень маркетплейса
+├── .agents/plugins/
+│   └── marketplace.json               ← манифест маркетплейса Codex
 ├── .claude-plugin/
 │   └── marketplace.json               ← манифест маркетплейса
 ├── plugins/
 │   └── ai-brainstorm/
+│       ├── .codex-plugin/
+│       │   └── plugin.json            ← манифест плагина Codex
 │       ├── .claude-plugin/
 │       │   └── plugin.json            ← манифест плагина
 │       └── skills/
@@ -40,8 +44,8 @@ brainstormer/                          ← маркетплейс Claude Code (�
 
 ## Архитектура: кто где
 
-- **Скиллы `ai-brainstorm` и `ai-review` — это скиллы Claude Code.** Они живут
-  внутри Claude Code и управляют процессом.
+- **Скиллы `ai-brainstorm` и `ai-review` работают в Claude Code и Codex.**
+  Установившая плагин живая сессия управляет процессом.
 - **`claude` и `codex` — участники.** Скилл запускает их как отдельные headless
   CLI-сессии (`claude -p`, `codex exec`). Их **не нужно** никуда «устанавливать»
   как плагин — нужно лишь, чтобы оба CLI были установлены и залогинены в системе.
@@ -74,7 +78,33 @@ brainstormer/                          ← маркетплейс Claude Code (�
 /plugin marketplace update brainstormer
 ```
 
-### 2. Codex как участник
+### 2. Плагин в Codex
+
+Из локального пути:
+
+```bash
+codex plugin marketplace add /home/sergey/brainstormer
+codex plugin add ai-brainstorm@brainstormer
+```
+
+Из GitHub:
+
+```bash
+codex plugin marketplace add GeTechG/ai-brainstormer
+codex plugin add ai-brainstorm@brainstormer
+```
+
+Обновление Git-маркетплейса и переустановка новой версии:
+
+```bash
+codex plugin marketplace upgrade brainstormer
+codex plugin add ai-brainstorm@brainstormer
+```
+
+После установки или обновления открой новую сессию Codex, чтобы она подхватила
+скиллы плагина.
+
+### 3. CLI-участники
 
 `codex` CLI должен быть установлен и аутентифицирован:
 
@@ -88,7 +118,7 @@ codex login          # вход, если не залогинен
 
 ## Использование
 
-В любом проекте внутри Claude Code попроси штурм, например:
+В любом проекте внутри Claude Code или Codex попроси штурм, например:
 
 > «проведи мозговой штурм: <тема>»
 > «пусть claude и codex независимо обдумают X, а потом сведут к общему плану»
@@ -132,6 +162,6 @@ preflight судьи, запустит судью другой модели в �
 
 ## Требования
 
-- Claude Code CLI
+- Claude Code CLI (`claude`), залогинен
 - Codex CLI (`codex`), залогинен
 - Python 3 (только стандартная библиотека — внешних зависимостей нет)

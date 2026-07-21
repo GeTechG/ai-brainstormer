@@ -103,7 +103,8 @@ the merged ledger: no `open` blocker/important from **any** specialist.
 ## Full-codebase flow
 
 1. **Setup.** Settle the roster and (if needed) the area split; pick the judge
-   CLI/model (default `codex`); preflight (`run_round.py --check`). Invent a
+   from the other model family (`codex` when hosted by Claude Code, `claude`
+   when hosted by Codex); preflight (`run_round.py --check`). Invent a
    `slug`, create `reviews/<slug>/`, write `scope.md` (whole-codebase scope), the
    `specialists` `state.json`, an empty `findings.json`, and seed `review.md`.
    **Warn on cost:** N specialists × rounds × areas CLI runs — tell the user the

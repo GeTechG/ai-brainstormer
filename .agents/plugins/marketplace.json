@@ -1,0 +1,20 @@
+{
+  "name": "brainstormer",
+  "interface": {
+    "displayName": "Brainstormer"
+  },
+  "plugins": [
+    {
+      "name": "ai-brainstorm",
+      "source": {
+        "source": "local",
+        "path": "./plugins/ai-brainstorm"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

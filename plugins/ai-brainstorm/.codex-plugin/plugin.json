@@ -1,0 +1,39 @@
+{
+  "name": "ai-brainstorm",
+  "version": "1.10.0",
+  "description": "Multi-agent cross-model brainstorming and adversarial code review for Claude Code and Codex.",
+  "author": {
+    "name": "sergey",
+    "email": "sergey2003.25.9@gmail.com",
+    "url": "https://github.com/GeTechG"
+  },
+  "homepage": "https://github.com/GeTechG/ai-brainstormer",
+  "repository": "https://github.com/GeTechG/ai-brainstormer",
+  "keywords": [
+    "brainstorm",
+    "multi-agent",
+    "orchestration",
+    "claude",
+    "codex",
+    "code-review",
+    "cross-model"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "AI Brainstorm",
+    "shortDescription": "Cross-model brainstorming and code review.",
+    "longDescription": "Run structured Claude and Codex debates, or have a different model review code until the important findings are resolved.",
+    "developerName": "sergey",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write",
+      "Shell"
+    ],
+    "defaultPrompt": [
+      "Run a cross-model brainstorm about this project.",
+      "Have another model review my uncommitted changes.",
+      "Run a lightweight cross-model review before I commit."
+    ]
+  }
+}

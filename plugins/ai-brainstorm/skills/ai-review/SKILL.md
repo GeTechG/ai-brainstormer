@@ -1,45 +1,18 @@
 ---
 name: ai-review
 description: >-
-  Cross-model adversarial code review. A judge model — a *different* model from
-  the one you are running (Claude → Codex by default, or the reverse) — reviews
-  your code changes in a fresh, clean session, and you, the **respondent** who
-  launched the skill, fix or rebut each finding round by round until the judge
-  finds nothing left. The scope can be your uncommitted changes (default) or a
-  whole PR / branch (everything a branch introduces vs its base). The judge is
-  read-only and re-reviews the live repo each round in the *same resumed session*,
-  so it remembers what it already flagged. Use this whenever the user wants a
-  second model to review, check, audit, or sign off on their code changes or a
-  pull request — e.g. "have Codex review my changes", "get another model to review
-  this diff", "cross-check my edits with a different model", "review this PR /
-  branch with another model", "run a code review on my uncommitted changes", "let
-  a judge model inspect what I changed and loop until it's clean". Trigger even if
-  the user does not say "review" but clearly wants an independent model to
-  scrutinize their changes or branch and drive them to a clean state. There is
-  also a **lite mode** — a fast, low-token, file-free pass meant to run right
-  before a commit: no review directory is created, the judge runs immediately,
-  returns a short findings list, you apply the fixes, and it loops once or twice
-  until clean. Lite mode is **no weaker at finding problems** than the full
-  review — it scrutinizes the same dimensions and flags the same issues at the
-  same severities; what it strips is the ceremony (files, JSON ledger, PR scope),
-  not the detection rigor. Trigger lite mode when the user wants a *quick /
-  lightweight / pre-commit* check — e.g. "lightweight review", "quick review
-  before I commit", "lite cross-model check", "give the judge a fast pass".
-  There is also a **full-codebase mode** that audits the ENTIRE existing codebase
-  (not a diff) by fanning out several cross-model judge specialists, each hunting
-  one class of problem across the whole tree, and re-sweeping every round. Use it
-  when the user wants the whole project reviewed or audited rather than just a
-  change — e.g. "review the whole codebase", "audit the entire project", "review
-  all the code", "check the whole project end to end". Finally there is a **dual diff-only
-  mode** for critical slices (schemas, migrations, public API contracts, wire
-  formats, fork/vendored patches, security-sensitive paths): TWO independent
-  reviewers each receive only the frozen diff in a fresh clean session — no
-  author context, no rationalizations, never resumed — and divergence between
-  their verdicts is itself a signal about the change. Trigger it when the user
-  wants two independent reviewers, a diff-only or clean-context review, or flags
-  the change as critical — e.g. "two independent reviewers on this diff",
-  "clean-context review", "diff-only review", "this is a critical slice — run
-  two judges with clean context".
+  Cross-model adversarial code review for Claude Code or Codex. A read-only
+  judge from the other model family reviews changes in a clean CLI session; the
+  live respondent fixes or rebuts findings round by round until no important
+  issues remain. Use for independent review, audit, sign-off, pull requests,
+  branches, uncommitted changes, or requests such as "have another model review
+  this diff". Supports full review with an auditable findings ledger; lite mode
+  for a fast, low-token pre-commit pass; full-codebase mode with parallel judge
+  specialists; and dual diff-only mode with two fresh independent reviewers for
+  critical schemas, migrations, APIs, wire formats, vendored patches, or
+  security-sensitive changes. Trigger lite mode for quick/lightweight review,
+  full-codebase mode for whole-project audits, and dual mode for two-reviewer,
+  frozen-diff, or clean-context requests.
 ---
 
 # AI Review
@@ -103,11 +76,12 @@ stays the right default for lite and ordinary diffs.
   full prior context of how the change was made, or none — either way you must
   **investigate the change yourself** before defending it, exactly as the judge
   will. You are the only one who writes to the project.
-- **Judge** = a headless CLI of a **different model**. Default: if you are Claude,
-  the judge is **`codex`**; offer **`claude`** (a fresh, clean Claude session — a
-  weaker, same-family check) as the alternative. The judge is **read-only**
-  (`codex` by OS sandbox; `claude` with editing tools disabled) and reviews the
-  real working tree.
+- **Judge** = a headless CLI of a **different model**. Detect which host is
+  running this skill: if you are Claude, the default judge is **`codex`**; if you
+  are Codex, the default judge is **`claude`**. Offer the other available CLI as
+  a same-family fallback, and disclose that its model diversity is weaker. The
+  judge is **read-only** (`codex` by OS sandbox; `claude` with editing tools
+  disabled) and reviews the real working tree.
 
 ## Invariants — do not break these
 
@@ -257,9 +231,11 @@ Tell the user what is happening between phases — a judge round takes minutes.
    branch — and `gh pr checkout` first for a GitHub PR), or explicit paths / a
    commit. Confirm it in one sentence. If the chosen scope is *empty* (no diff),
    say so and stop.
-2. **Pick the judge.** Default `codex` (different family). Offer `claude` (fresh
-   clean session) if the user prefers, or if `codex` is unavailable. The judge
-   must be a different *session* than yours regardless; prefer a different *model*.
+2. **Pick the judge.** Choose the other model family by default: `codex` when
+   this skill is running in Claude Code, or `claude` when it is running in Codex.
+   If that CLI is unavailable, offer a fresh session of the host CLI and disclose
+   the weaker model diversity. The judge must be a different *session* than yours
+   regardless; prefer a different *model*.
    **Judge model.** The `judge.model` field selects its model; `null` (the
    default) means that CLI's own default — whatever the user has configured, with
    no override. If the user names a model in their request ("review with codex on
@@ -310,6 +286,9 @@ Tell the user what is happening between phases — a judge round takes minutes.
   "judge": {"name": "codex", "cli": "codex", "model": null, "effort": null, "session_id": null}
 }
 ```
+
+This example assumes Claude Code is the respondent. When Codex is the
+respondent, set both `judge.name` and `judge.cli` to `"claude"`.
 
 `findings.json` starts as:
 ```json
@@ -529,12 +508,13 @@ paperwork removed.
 
 - **Use a cheap/fast judge model.** Set `model` in the config to a small model:
   for a `claude` judge, `"model": "claude-haiku-4-5-20251001"`; for `codex`, pass
-  a faster model via `model`. Default codex (`model: null`) is fine too — it
-  reports no dollar cost, just tokens. Leave `effort` unset (the CLI default,
+  a faster model via `model`. When `codex` is selected, its default model
+  (`model: null`) is fine too — it reports no dollar cost, just tokens. Leave `effort` unset (the CLI default,
   e.g. codex `medium`, reviews best); only lower it if the user explicitly wants
   the cheapest possible pass and accepts a weaker review.
-- **Skip the paid claude probe** in preflight: `run_round.py --check --no-probe-claude`
-  (or skip preflight entirely if a judge round already ran this session).
+- **Skip the paid claude probe only for a `codex` judge:**
+  `run_round.py --check --no-probe-claude`. Keep the normal probe when `claude`
+  is the judge, or skip preflight if a judge round already ran this session.
 - **Keep the prompt minimal** — the lite templates in `references/review-prompts.md`
   ("Judge lite — round 1" / "Judge lite — re-review") are deliberately short; do
   not pad them with the full dimension catalogue.
@@ -547,7 +527,9 @@ paperwork removed.
    prompts/output do not pile up. (It is gitignored runtime output; safe to
    delete.)
 1. **Confirm in one line** what is under review (uncommitted changes) and the
-   judge. Default judge `codex`; offer `claude` (haiku) if codex is unavailable.
+   judge. Use the other model family by default (`codex` from Claude Code,
+   `claude` from Codex); if it is unavailable, offer a fresh same-family judge
+   and disclose the weaker diversity.
    If `git diff HEAD` is empty *and* there are no untracked files, say so and stop.
 2. **Read your own diff** (`git diff HEAD`, `git status`) — briefly; you still need
    enough understanding to fix or rebut.
